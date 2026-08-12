@@ -1,0 +1,51 @@
+package ${packageName}.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+    #if($table.sub)
+    import java.util.List;
+
+    import ${packageName}.entity.${subClassName};
+    #end
+import ${packageName}.entity .${ClassName};
+
+/**
+ * ${functionName} Mapper. 单表 CRUD 已由 BaseMapper 提供，无需重复声明。
+ *
+ * @author ${author}
+ * @date ${datetime}
+ */
+public interface ${ClassName}Mapper extends BaseMapper<${ClassName}> {
+    #if($table.sub)
+        /**
+         * 查询${subTable.functionName}列表
+         *
+         * @param ${pkColumn.javaField} ${functionName}主键
+         * @return ${subTable.functionName}集合
+         */
+        public List<${subClassName}> select${subClassName}List(${pkColumn.javaType} ${pkColumn.javaField});
+
+        /**
+         * 批量删除${subTable.functionName}
+         *
+         * @param ${pkColumn.javaField}s 需要删除的${functionName}主键集合
+         * @return 结果
+         */
+        public int delete${subClassName}By${subTableFkClassName}s(${pkColumn.javaType}[] ${pkColumn.javaField}s);
+
+        /**
+         * 批量新增${subTable.functionName}
+         *
+         * @param ${subclassName}List ${subTable.functionName}列表
+         * @return 结果
+         */
+        public int batch${subClassName}(List<${subClassName}> ${subclassName}List);
+
+        /**
+         * 删除${subTable.functionName}信息
+         *
+         * @param ${pkColumn.javaField} ${functionName}主键
+         * @return 结果
+         */
+        public int delete${subClassName}By${subTableFkClassName}(${pkColumn.javaType} ${pkColumn.javaField});
+    #end
+}

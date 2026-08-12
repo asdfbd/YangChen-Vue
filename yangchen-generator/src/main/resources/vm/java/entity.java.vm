@@ -1,0 +1,129 @@
+package ${packageName}.entity;
+
+    #foreach ($import in $importList)
+    import ${import};
+    #end
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.yangchen.common.annotation.Excel;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * ${functionName} entity for ${tableName}.
+ *
+ * @author ${author}
+ * @date ${datetime}
+ */
+@Schema(description = "${functionName}对象 ${tableName}")
+@Data
+@TableName("${tableName}")
+public class ${ClassName} {
+        private static final long serialVersionUID = 1L;
+
+    #foreach ($column in $columns)
+        #if(!$table.isSuperColumn($column.javaField))
+                /** $column.columnComment */
+                @Schema(description = "$column.columnComment")
+                    #if($column.list)
+                        #set($parentheseIndex=$column.columnComment.indexOf("（"))
+                        #if($parentheseIndex != -1)
+                            #set($comment=$column.columnComment.substring(0, $parentheseIndex))
+                        #else
+                            #set($comment=$column.columnComment)
+                        #end
+                        #if($parentheseIndex != -1)
+                        @Excel(name = "${comment}", readConverterExp = "$column.readConverterExp()")
+                        #elseif($column.javaType == 'Date')
+                        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+                        @Excel(name = "${comment}", width = 30, dateFormat = "yyyy-MM-dd")
+                        #else
+                        @Excel(name = "${comment}")
+                        #end
+                    #end
+                    #if($column.columnName == $pkColumn.columnName)
+                    @TableId(value = "${column.columnName}", type = IdType.ASSIGN_ID)
+                    #else
+                    @TableField("${column.columnName}")
+                    #end
+                private $column.javaType $column.javaField;
+
+        #end
+    #end
+    #if($table.tree)
+            /** 父级名称 */
+            @Schema(description = "父级名称")
+            private String parentName;
+
+            /** 父级ID */
+            @Schema(description = "父级ID")
+            private Long parentId;
+
+            /** 显示顺序 */
+            @Schema(description = "显示顺序")
+            private Integer orderNum;
+
+            /** 祖级列表 */
+            @Schema(description = "祖级列表")
+            private String ancestors;
+
+            /** 子级列表 */
+            @Schema(description = "子级列表")
+            private List<${ClassName}> children = new ArrayList<${ClassName}>();
+
+    #end
+    #if($table.sub)
+            /** ${subClassName} 信息 */
+            @Schema(description = "${subClassName}信息")
+            @TableField(exist = false)
+            private List<${subClassName}> ${subclassName}List;
+
+    #end
+        /** 创建者 */
+        @Schema(description = "创建者")
+        private String createBy;
+
+        /** 创建时间 */
+        @Schema(description = "创建时间")
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        @TableField(fill = FieldFill.INSERT)
+        private Date createTime;
+
+        /** 更新者 */
+        @Schema(description = "更新者")
+        private String updateBy;
+
+        /** 更新时间 */
+        @Schema(description = "更新时间")
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        @TableField(fill = FieldFill.INSERT_UPDATE)
+        private Date updateTime;
+
+        /** 备注 */
+        @Schema(description = "备注")
+        private String remark;
+
+        /** 搜索值 */
+        @Schema(description = "搜索值")
+        @TableField(exist = false)
+        @JsonIgnore
+        private String searchValue;
+
+        /** 请求参数 */
+        @Schema(description = "请求参数")
+        @TableField(exist = false)
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        private Map<String, Object> params = new HashMap<>();
+}

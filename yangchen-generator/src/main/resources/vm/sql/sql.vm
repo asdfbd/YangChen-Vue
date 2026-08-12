@@ -1,0 +1,17 @@
+-- PostgreSQL menu SQL
+WITH parent_menu AS (
+INSERT INTO sys_menu (menu_name, parent_id, order_num, path, component, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, update_by, update_time, remark)
+VALUES ('${functionName}', ${parentMenuId}, 1, '${businessName}', '${moduleName}/${businessName}/index', 1, 0, 'C', '0', '0', '${permissionPrefix}:list', '#', 'admin', CURRENT_TIMESTAMP, '', NULL, '${functionName}菜单')
+RETURNING menu_id
+)
+INSERT INTO sys_menu (menu_name, parent_id, order_num, path, component, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, create_time, update_by, update_time, remark)
+SELECT action.menu_name, parent_menu.menu_id, action.order_num, '#', '', 1, 0, 'F', '0', '0', action.perms, '#', 'admin', CURRENT_TIMESTAMP, '', NULL, ''
+FROM parent_menu
+CROSS JOIN (
+VALUES
+('${functionName}查询', 1, '${permissionPrefix}:query'),
+('${functionName}新增', 2, '${permissionPrefix}:add'),
+('${functionName}修改', 3, '${permissionPrefix}:edit'),
+('${functionName}删除', 4, '${permissionPrefix}:remove'),
+('${functionName}导出', 5, '${permissionPrefix}:export')
+) AS action(menu_name, order_num, perms);
