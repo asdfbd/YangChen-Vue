@@ -9,6 +9,7 @@ import {useWatermark} from '@vben/hooks';
 import {preferences, usePreferences} from '@vben/preferences';
 import {useAccessStore, useUserStore} from '@vben/stores';
 
+import AiAssistant from '#/components/ai-assistant/index.vue';
 import NoticeWidget from '#/components/notice/notice-widget.vue';
 import {$t} from '#/locales';
 import {useAuthStore} from '#/store';
@@ -112,4 +113,7 @@ watch(
       <LockScreen :avatar @to-login="handleLogout"/>
     </template>
   </BasicLayout>
+
+  <!-- 全局 AI 智能助手（所有页面可见） -->
+  <AiAssistant/>
 </template>
