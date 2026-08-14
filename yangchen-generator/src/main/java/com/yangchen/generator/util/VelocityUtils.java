@@ -33,14 +33,9 @@ public class VelocityUtils {
     private static final String DEFAULT_PARENT_MENU_ID = "3";
 
     /**
-     * Vue3 Element Plus 模版
+     * Vue3 Ant Design Vue TypeScript 模版（Vben Admin web-antd）
      */
-    private static final String ELEMENT_PLUS = "element-plus";
-
-    /**
-     * Vue3 Element Plus TypeScript 模版
-     */
-    private static final String ELEMENT_PLUS_TYPESSRIPT = "element-plus-typescript";
+    private static final String ANTD_VUE_TYPESCRIPT = "antd-vue-typescript";
 
     /**
      * 设置模板变量信息
@@ -137,23 +132,16 @@ public class VelocityUtils {
     /**
      * 获取模板信息
      *
-     * @param tplCategory 生成的模板
-     * @param tplWebType  前端类型
+     * @param table 业务表信息
      * @return 模板列表
      */
     public static List<String> getTemplateList(GenTable table) {
-        String tplWebType = table.getTplWebType();
         String tplCategory = table.getTplCategory();
         Map<String, Object> paramsObj = JsonUtils.parseObject(table.getOptions());
         boolean isView = genView(paramsObj);
-        String useWebType = "vm/vue";
-        String apiTemplate = "vm/js/api.js.vm";
-        if (StrUtil.equals(ELEMENT_PLUS, tplWebType)) {
-            useWebType = "vm/vue/v3";
-        } else if (StrUtil.equals(ELEMENT_PLUS_TYPESSRIPT, tplWebType)) {
-            useWebType = "vm/vue/v3ts";
-            apiTemplate = "vm/ts/api.ts.vm";
-        }
+        // 统一生成 Ant Design Vue + TypeScript（Vben Admin web-antd）模板
+        String useWebType = "vm/vue/antd";
+        String apiTemplate = "vm/ts/api.ts.vm";
         List<String> templates = new ArrayList<String>();
         templates.add("vm/java/entity.java.vm");
         templates.add("vm/java/mapper.java.vm");
@@ -163,10 +151,6 @@ public class VelocityUtils {
         templates.add("vm/xml/mapper.xml.vm");
         templates.add("vm/sql/sql.vm");
         templates.add(apiTemplate);
-        if (StrUtil.equals(ELEMENT_PLUS_TYPESSRIPT, tplWebType)) {
-            templates.add("vm/ts/type.ts.vm");
-            templates.add("vm/ts/index.ts.vm");
-        }
         if (GenConstants.TPL_CRUD.equals(tplCategory)) {
             templates.add(useWebType + "/index.vue.vm");
         } else if (GenConstants.TPL_TREE.equals(tplCategory)) {
@@ -217,14 +201,8 @@ public class VelocityUtils {
             fileName = StrUtil.format("{}/{}Mapper.xml", mybatisPath, className);
         } else if (template.contains("sql.vm")) {
             fileName = businessName + "Menu.sql";
-        } else if (template.contains("api.js.vm")) {
-            fileName = StrUtil.format("{}/api/{}/{}.js", vuePath, moduleName, businessName);
         } else if (template.contains("api.ts.vm")) {
             fileName = StrUtil.format("{}/api/{}/{}.ts", vuePath, moduleName, businessName);
-        } else if (template.contains("type.ts.vm")) {
-            fileName = StrUtil.format("{}/types/api/{}/{}.ts", vuePath, moduleName, businessName);
-        } else if (template.contains("index.ts.vm")) {
-            fileName = StrUtil.format("{}/types/api/index-bak.ts", vuePath);
         } else if (template.contains("index.vue.vm")) {
             fileName = StrUtil.format("{}/views/{}/{}/index.vue", vuePath, moduleName, businessName);
         } else if (template.contains("index-tree.vue.vm")) {

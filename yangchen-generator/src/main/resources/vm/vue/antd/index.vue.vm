@@ -1,0 +1,845 @@
+#set($opWidth = "150")
+#if($genView)
+#set($opWidth = "190")
+#end
+#set($modalWidth = "520px")
+#if($table.formColNum == 3)
+#set($modalWidth = "900px")
+#elseif($table.formColNum == 2)
+#set($modalWidth = "700px")
+#end
+<script lang="ts" setup>
+import {computed, onMounted, reactive, ref} from 'vue';
+
+import {Page} from '@vben/common-ui';
+import {IconifyIcon} from '@vben/icons';
+import {useAccessStore} from '@vben/stores';
+
+import type {TableColumnType} from 'ant-design-vue';
+import {
+  Button,
+  Card,
+  DatePicker,
+  Form,
+  Input,
+  message,
+  Modal,
+  Select,
+  Space,
+  Table,
+  Tag,
+#set($hasCheckbox = false)
+#set($hasRadio = false)
+#set($hasImage = false)
+#foreach($column in $columns)
+#if($column.htmlType == "checkbox")#set($hasCheckbox = true)#end
+#if($column.htmlType == "radio")#set($hasRadio = true)#end
+#if($column.htmlType == "imageUpload")#set($hasImage = true)#end
+#end
+#if($hasCheckbox)
+  Checkbox,
+#end
+#if($hasRadio)
+  Radio,
+#end
+#if($hasImage)
+  Image,
+#end
+} from 'ant-design-vue';
+import type {${ClassName}} from '#/api/${moduleName}/${businessName}';
+import {
+  add${BusinessName}Api,
+  del${BusinessName}Api,
+  get${BusinessName}Api,
+  list${BusinessName}Api,
+  update${BusinessName}Api,
+} from '#/api/${moduleName}/${businessName}';
+import {requestClient} from '#/api/request';
+#if($genView)
+import ${BusinessName}ViewDrawer from './view.vue';
+#end
+
+import {downloadBlob} from '#/utils/download';
+
+defineOptions({name: '${BusinessName}'});
+
+type Key = number | string;
+type DictOption = {label: string; value: string};
+
+const accessStore = useAccessStore();
+
+function hasPermi(code: string) {
+  const codes = accessStore.accessCodes;
+  return codes.includes('*:*:*') || codes.includes(code);
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '-';
+  return value.includes('T') ? value.replace('T', ' ').slice(0, 19) : value.slice(0, 19);
+}
+#if(${dicts} != '')
+
+const dictMap = reactive<Record<string, DictOption[]>>({});
+
+async function loadDict(dictType: string) {
+  if (!dictMap[dictType]) {
+    const data = await requestClient.get<{dictLabel: string; dictValue: string}[]>(
+      '/system/dict/data/type/' + dictType,
+    );
+    dictMap[dictType] = (data ?? []).map((item) => ({
+      label: item.dictLabel,
+      value: item.dictValue,
+    }));
+  }
+  return dictMap[dictType];
+}
+
+function dictLabel(dictType: string, value: any) {
+  const found = (dictMap[dictType] ?? []).find((item) => String(item.value) === String(value));
+  return found?.label ?? value;
+}
+
+function dictLabels(dictType: string, value: any) {
+  return String(value ?? '')
+    .split(',')
+    .filter(Boolean)
+    .map((v) => dictLabel(dictType, v))
+    .join(', ');
+}
+
+#foreach($column in $columns)
+#if($column.dictType && ($column.htmlType == "select" || $column.htmlType == "radio" || $column.htmlType == "checkbox"))
+loadDict('${column.dictType}');
+#end
+#end
+#end
+
+const loading = ref(false);
+const saving = ref(false);
+const showSearch = ref(true);
+const ${businessName}List = ref<${ClassName}[]>([]);
+const total = ref(0);
+const selectedRowKeys = ref<Key[]>([]);
+const dictColumns: string[] = [
+#foreach($column in $columns)
+#if($column.dictType && $column.list && ($column.htmlType == "select" || $column.htmlType == "radio" || $column.htmlType == "checkbox"))
+  '${column.javaField}',
+#end
+#end
+];
+const dictTypeMap: Record<string, string> = {
+#foreach($column in $columns)
+#if($column.dictType && $column.list && ($column.htmlType == "select" || $column.htmlType == "radio" || $column.htmlType == "checkbox"))
+  ${column.javaField}: '${column.dictType}',
+#end
+#end
+};
+const datetimeColumns: string[] = [
+#foreach($column in $columns)
+#if($column.list && $column.htmlType == "datetime")
+  '${column.javaField}',
+#end
+#end
+];
+const imageColumns: string[] = [
+#foreach($column in $columns)
+#if($column.list && $column.htmlType == "imageUpload")
+  '${column.javaField}',
+#end
+#end
+];
+#foreach($column in $columns)
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+const dateRange${AttrName} = ref<[import('dayjs').Dayjs, import('dayjs').Dayjs] | undefined>();
+#end
+#end
+#if($table.sub)
+const subRows = ref<any[]>([]);
+const subSelectedRowKeys = ref<Key[]>([]);
+#end
+const query = reactive<Record<string, any>>({
+  pageNum: 1,
+  pageSize: 10,
+#foreach($column in $columns)
+#if($column.query)
+  ${column.javaField}: undefined,
+#end
+#end
+});
+
+function buildQuery() {
+#set($hasBetween = false)
+#foreach($column in $columns)
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")#set($hasBetween = true)#end
+#end
+#if($hasBetween)
+  const {
+#foreach($column in $columns)
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+    begin${AttrName},
+    end${AttrName},
+#end
+#end
+    ...rest
+  } = query;
+  const params: Record<string, any> = {};
+#foreach($column in $columns)
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+  if (begin${AttrName}) params.begin${AttrName} = begin${AttrName};
+  if (end${AttrName}) params.end${AttrName} = end${AttrName};
+#end
+#end
+  return {...rest, params};
+#else
+  return {...query};
+#end
+}
+
+async function loadData() {
+  loading.value = true;
+  try {
+    const {rows, total: count} = await list${BusinessName}Api(buildQuery());
+    ${businessName}List.value = rows;
+    total.value = count;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function handleSearch() {
+  query.pageNum = 1;
+  loadData();
+}
+
+function handleReset() {
+#foreach($column in $columns)
+#if($column.query)
+  query.${column.javaField} = undefined;
+#end
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+  query.begin${AttrName} = undefined;
+  query.end${AttrName} = undefined;
+  dateRange${AttrName}.value = undefined;
+#end
+#end
+  query.pageNum = 1;
+  loadData();
+}
+
+#foreach($column in $columns)
+#if($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+function handle${AttrName}RangeChange(_dates: unknown, dateStrings: [string, string]) {
+  query.begin${AttrName} = dateStrings?.[0] || undefined;
+  query.end${AttrName} = dateStrings?.[1] || undefined;
+}
+#end
+#end
+
+function handleTableChange(pagination: {current?: number; pageSize?: number}) {
+  query.pageNum = pagination.current ?? 1;
+  query.pageSize = pagination.pageSize ?? 10;
+  loadData();
+}
+
+function handleSelectionChange(keys: Key[]) {
+  selectedRowKeys.value = keys;
+}
+
+const columns: TableColumnType[] = [
+#foreach($column in $columns)
+#set($parentheseIndex=$column.columnComment.indexOf("（"))
+#if($parentheseIndex != -1)
+#set($comment=$column.columnComment.substring(0, $parentheseIndex))
+#else
+#set($comment=$column.columnComment)
+#end
+#if($column.pk)
+  {align: 'center', dataIndex: '${column.javaField}', key: '${column.javaField}', title: '${comment}', width: 90},
+#elseif($column.list && $column.htmlType == "datetime")
+  {align: 'center', dataIndex: '${column.javaField}', key: '${column.javaField}', title: '${comment}', width: 180},
+#elseif($column.list && $column.htmlType == "imageUpload")
+  {dataIndex: '${column.javaField}', key: '${column.javaField}', title: '${comment}', width: 100},
+#elseif($column.list && $column.dictType)
+  {align: 'center', dataIndex: '${column.javaField}', key: '${column.javaField}', title: '${comment}', width: 130},
+#elseif($column.list && ($column.htmlType == "textarea" || $column.htmlType == "editor"))
+  {dataIndex: '${column.javaField}', ellipsis: true, key: '${column.javaField}', title: '${comment}', width: 200},
+#elseif($column.list)
+  {dataIndex: '${column.javaField}', ellipsis: true, key: '${column.javaField}', title: '${comment}', width: 160},
+#end
+#end
+  {align: 'center', key: 'operation', title: '操作', width: ${opWidth}},
+];
+
+const pagination = computed(() => ({
+  current: query.pageNum,
+  pageSize: query.pageSize,
+  showSizeChanger: true,
+  showTotal: (count: number) => '共 ' + count + ' 条',
+  total: total.value,
+}));
+
+const modalOpen = ref(false);
+const modalTitle = ref('');
+const isEdit = ref(false);
+const formRef = ref();
+const form = reactive<any>({});
+const rules: Record<string, any> = {
+#foreach($column in $columns)
+#if($column.required)
+#set($parentheseIndex=$column.columnComment.indexOf("（"))
+#if($parentheseIndex != -1)
+#set($comment=$column.columnComment.substring(0, $parentheseIndex))
+#else
+#set($comment=$column.columnComment)
+#end
+  ${column.javaField}: [
+    {required: true, message: '${comment}不能为空', trigger: #if($column.htmlType == "select" || $column.htmlType == "radio" || $column.htmlType == "checkbox")'change'#else'blur'#end},
+  ],
+#end
+#end
+};
+
+function resetForm() {
+  Object.assign(form, {
+#foreach($column in $columns)
+#if($column.insert && !$column.pk)
+#if(($column.usableColumn) || (!$column.superColumn))
+#if($column.htmlType == "checkbox")
+    ${column.javaField}: [],
+#else
+    ${column.javaField}: undefined,
+#end
+#end
+#end
+#end
+  });
+  formRef.value?.clearValidate?.();
+#if($table.sub)
+  subRows.value = [];
+#end
+}
+
+function openAdd() {
+  isEdit.value = false;
+  modalTitle.value = '新增${functionName}';
+  resetForm();
+  modalOpen.value = true;
+}
+
+async function openEdit(row: ${ClassName}) {
+  isEdit.value = true;
+  modalTitle.value = '修改${functionName}';
+  resetForm();
+  const data = await get${BusinessName}Api(row.${pkColumn.javaField} as Key);
+  Object.assign(form, data);
+#foreach($column in $columns)
+#if($column.htmlType == "checkbox")
+  form.${column.javaField} = String(form.${column.javaField} ?? '').split(',').filter(Boolean);
+#end
+#end
+#if($table.sub)
+  subRows.value = (data.${subclassName}List ?? []).map((item: any) =>
+    reactive({...item, index: subRows.value.length}),
+  );
+#end
+  modalOpen.value = true;
+}
+
+function handleUpdate() {
+  const key = selectedRowKeys.value[0];
+  const row = ${businessName}List.value.find((item) => String(item.${pkColumn.javaField}) === String(key));
+  if (row) openEdit(row);
+}
+
+async function handleSubmit() {
+  try {
+    await formRef.value?.validate();
+  } catch {
+    return;
+  }
+  saving.value = true;
+  try {
+#foreach($column in $columns)
+#if($column.htmlType == "checkbox")
+    form.${column.javaField} = (form.${column.javaField} ?? []).join(',');
+#end
+#end
+#if($table.sub)
+    form.${subclassName}List = subRows.value;
+#end
+    if (isEdit.value) {
+      await update${BusinessName}Api({...form});
+      message.success('修改成功');
+    } else {
+      await add${BusinessName}Api({...form});
+      message.success('新增成功');
+    }
+    modalOpen.value = false;
+    loadData();
+  } finally {
+    saving.value = false;
+  }
+}
+
+#set($hasNameColumn = false)
+#foreach($column in $columns)
+#if(!$hasNameColumn && $column.javaType == "String" && !$column.pk && $column.list)
+#set($hasNameColumn = true)
+#set($nameColumn = $column.javaField)
+#end
+#end
+#if(!$hasNameColumn)
+#set($nameColumn = ${pkColumn.javaField})
+#end
+/** 由选中的${functionName} ID 反查名称（用于确认提示文案） */
+function selected${BusinessName}Names(): string[] {
+  return selectedRowKeys.value.map((id) => {
+    const row = ${businessName}List.value.find(
+      (item) => String(item.${pkColumn.javaField}) === String(id),
+    );
+    return row?.${nameColumn} || String(id);
+  });
+}
+
+function handleDelete(row?: ${ClassName}) {
+  const ids = row ? [row.${pkColumn.javaField} as Key] : selectedRowKeys.value;
+  const names = row
+    ? [row.${nameColumn} || String(row.${pkColumn.javaField})]
+    : selected${BusinessName}Names();
+  Modal.confirm({
+    cancelText: '取消',
+    content: '是否确认删除${functionName}"' + names.join('、') + '"的数据项？',
+    okText: '删除',
+    okType: 'danger',
+    onOk: async () => {
+      await del${BusinessName}Api(ids);
+      selectedRowKeys.value = [];
+      message.success('删除成功');
+      loadData();
+    },
+    title: '系统提示',
+  });
+}
+
+async function handleExport() {
+  try {
+    await downloadBlob({
+      body: buildQuery(),
+      filename: '${businessName}_' + Date.now() + '.xlsx',
+      path: '/${moduleName}/${businessName}/export',
+    });
+    message.success('导出成功');
+  } catch (error: any) {
+    message.error(error?.message ?? '导出失败');
+  }
+}
+#if($genView)
+const viewDrawerRef = ref();
+function openView(row: ${ClassName}) {
+  viewDrawerRef.value?.open(row.${pkColumn.javaField});
+}
+#end
+#if($table.sub)
+
+function addSubRow() {
+  const row = reactive<any>({index: subRows.value.length});
+#foreach($column in $subTable.columns)
+#if(!$column.pk && $column.javaField != $subTableFkclassName)
+#if($column.htmlType == "checkbox")
+  row.${column.javaField} = [];
+#else
+  row.${column.javaField} = undefined;
+#end
+#end
+#end
+  subRows.value.push(row);
+}
+
+function deleteSubRows() {
+  if (!subSelectedRowKeys.value.length) {
+    message.warning('请先选择要删除的${subTable.functionName}数据');
+    return;
+  }
+  subRows.value = subRows.value.filter((item) => !subSelectedRowKeys.value.includes(item.index));
+  subSelectedRowKeys.value = [];
+}
+
+function handleSubSelectionChange(keys: Key[]) {
+  subSelectedRowKeys.value = keys;
+}
+#end
+
+onMounted(() => {
+  loadData();
+});
+</script>
+
+<template>
+  <Page auto-content-height title="${functionName}">
+    <div class="${businessName}-page">
+      <Card :bordered="false">
+        <div v-show="showSearch" class="search-panel mb-4">
+          <Form :model="query" class="search-form" layout="inline" @submit.prevent>
+#foreach($column in $columns)
+#if($column.query)
+#set($parentheseIndex=$column.columnComment.indexOf("（"))
+#if($parentheseIndex != -1)
+#set($comment=$column.columnComment.substring(0, $parentheseIndex))
+#else
+#set($comment=$column.columnComment)
+#end
+#set($dictType=$column.dictType)
+#if($column.htmlType == "input")
+            <Form.Item label="${comment}" name="${column.javaField}">
+              <Input v-model:value="query.${column.javaField}" allow-clear placeholder="请输入${comment}"
+                     style="width: 200px" @press-enter="handleSearch"/>
+            </Form.Item>
+#elseif(($column.htmlType == "select" || $column.htmlType == "radio") && $dictType != '')
+            <Form.Item label="${comment}" name="${column.javaField}">
+              <Select v-model:value="query.${column.javaField}" :options="dictMap['${column.dictType}'] ?? []"
+                      allow-clear placeholder="请选择${comment}" style="width: 180px"/>
+            </Form.Item>
+#elseif(($column.htmlType == "select" || $column.htmlType == "radio") && $dictType)
+            <Form.Item label="${comment}" name="${column.javaField}">
+              <Select v-model:value="query.${column.javaField}" allow-clear placeholder="请选择${comment}"
+                      style="width: 180px"/>
+            </Form.Item>
+#elseif($column.htmlType == "datetime" && $column.queryType != "BETWEEN")
+            <Form.Item label="${comment}" name="${column.javaField}">
+              <DatePicker v-model:value="query.${column.javaField}" format="YYYY-MM-DD" value-format="YYYY-MM-DD"
+                          placeholder="请选择${comment}" style="width: 180px"/>
+            </Form.Item>
+#elseif($column.htmlType == "datetime" && $column.queryType == "BETWEEN")
+#set($AttrName=$column.javaField.substring(0,1).toUpperCase() + $column.javaField.substring(1))
+            <Form.Item label="${comment}">
+              <DatePicker.RangePicker v-model:value="dateRange${AttrName}" style="width: 260px"
+                                      @change="handle${AttrName}RangeChange"/>
+            </Form.Item>
+#end
+#end
+#end
+            <Form.Item>
+              <Space :size="8">
+                <Button type="primary" @click="handleSearch">搜索</Button>
+                <Button @click="handleReset">重置</Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </div>
+
+        <div class="toolbar mb-4">
+          <Space :size="12" wrap>
+            <Button v-if="hasPermi('${permissionPrefix}:add')" type="primary" @click="openAdd">
+              <IconifyIcon class="btn-icon" icon="lucide:plus"/>
+              新增
+            </Button>
+            <Button v-if="hasPermi('${permissionPrefix}:edit')" :disabled="selectedRowKeys.length !== 1"
+                    @click="handleUpdate">
+              <IconifyIcon class="btn-icon" icon="lucide:pencil"/>
+              修改
+            </Button>
+            <Button v-if="hasPermi('${permissionPrefix}:remove')" :disabled="selectedRowKeys.length === 0"
+                    danger @click="handleDelete()">
+              <IconifyIcon class="btn-icon" icon="lucide:trash-2"/>
+              删除
+            </Button>
+            <Button v-if="hasPermi('${permissionPrefix}:export')" @click="handleExport">
+              <IconifyIcon class="btn-icon" icon="lucide:download"/>
+              导出
+            </Button>
+          </Space>
+          <Space :size="8">
+            <Button size="small" @click="showSearch = !showSearch">
+              <IconifyIcon :icon="showSearch ? 'lucide:eye-off' : 'lucide:eye'" class="btn-icon"/>
+              {{ showSearch ? '隐藏搜索' : '显示搜索' }}
+            </Button>
+            <Button size="small" @click="loadData">
+              <IconifyIcon class="btn-icon" icon="lucide:refresh-cw"/>
+              刷新
+            </Button>
+          </Space>
+        </div>
+
+        <Table
+          :columns="columns"
+          :data-source="${businessName}List"
+          :loading="loading"
+          :pagination="pagination"
+          :row-selection="{ selectedRowKeys, onChange: handleSelectionChange }"
+          :scroll="{ x: 1000 }"
+          row-key="${pkColumn.javaField}"
+          @change="handleTableChange"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'operation'">
+              <Space :size="2">
+#if($genView)
+                <Button v-if="hasPermi('${permissionPrefix}:query')" size="small" type="link"
+                        @click="openView(record)">详情
+                </Button>
+#end
+                <Button v-if="hasPermi('${permissionPrefix}:edit')" size="small" type="link"
+                        @click="openEdit(record)">修改
+                </Button>
+                <Button v-if="hasPermi('${permissionPrefix}:remove')" danger size="small" type="link"
+                        @click="handleDelete(record)">删除
+                </Button>
+              </Space>
+            </template>
+            <template v-else-if="datetimeColumns.includes(column.key)">{{
+                formatDateTime(record[column.key])
+              }}
+            </template>
+            <template v-else-if="imageColumns.includes(column.key)">
+              <Image :src="record[column.key]" :height="50" :width="50" style="object-fit: cover"/>
+            </template>
+            <template v-else-if="dictColumns.includes(column.key)">
+              <Tag>{{ dictLabels(dictTypeMap[column.key], record[column.key]) }}</Tag>
+            </template>
+          </template>
+        </Table>
+      </Card>
+    </div>
+
+    <Modal v-model:open="modalOpen" :confirm-loading="saving" :title="modalTitle"
+           width="${modalWidth}"
+           @ok="handleSubmit">
+      <Form ref="formRef" :label-col="{ flex: '100px' }" :model="form" :rules="rules">
+        <div class="form-grid">
+#foreach($column in $columns)
+#if($column.insert && !$column.pk)
+#if(($column.usableColumn) || (!$column.superColumn))
+#set($parentheseIndex=$column.columnComment.indexOf("（"))
+#if($parentheseIndex != -1)
+#set($comment=$column.columnComment.substring(0, $parentheseIndex))
+#else
+#set($comment=$column.columnComment)
+#end
+#set($dictType=$column.dictType)
+#if($column.htmlType == "input")
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Input v-model:value="form.${column.javaField}" placeholder="请输入${comment}"/>
+          </Form.Item>
+#elseif($column.htmlType == "textarea" || $column.htmlType == "editor")
+          <Form.Item class="form-grid__full" label="${comment}" name="${column.javaField}">
+            <Input.TextArea v-model:value="form.${column.javaField}" :auto-size="{ minRows: 3, maxRows: 6 }"
+                            placeholder="请输入${comment}"/>
+          </Form.Item>
+#elseif($column.htmlType == "imageUpload" || $column.htmlType == "upload")
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Input v-model:value="form.${column.javaField}" placeholder="请输入${comment}地址"/>
+          </Form.Item>
+#elseif($column.htmlType == "select" && $dictType != '')
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Select v-model:value="form.${column.javaField}" :options="dictMap['${column.dictType}'] ?? []"
+                    placeholder="请选择${comment}"/>
+          </Form.Item>
+#elseif($column.htmlType == "select" && $dictType)
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Select v-model:value="form.${column.javaField}" placeholder="请选择${comment}"/>
+          </Form.Item>
+#elseif($column.htmlType == "radio" && $dictType != '')
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Radio.Group v-model:value="form.${column.javaField}">
+              <Radio v-for="option in (dictMap['${column.dictType}'] ?? [])" :key="option.value"
+                     :value="option.value">{{ option.label }}
+              </Radio>
+            </Radio.Group>
+          </Form.Item>
+#elseif($column.htmlType == "radio" && $dictType)
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Radio.Group v-model:value="form.${column.javaField}">
+              <Radio value="1">请选择字典生成</Radio>
+            </Radio.Group>
+          </Form.Item>
+#elseif($column.htmlType == "checkbox" && $dictType != '')
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Checkbox.Group v-model:value="form.${column.javaField}" :options="dictMap['${column.dictType}'] ?? []"/>
+          </Form.Item>
+#elseif($column.htmlType == "checkbox" && $dictType)
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <Checkbox.Group v-model:value="form.${column.javaField}">
+              <Checkbox value="1">请选择字典生成</Checkbox>
+            </Checkbox.Group>
+          </Form.Item>
+#elseif($column.htmlType == "datetime")
+          <Form.Item label="${comment}" name="${column.javaField}">
+            <DatePicker v-model:value="form.${column.javaField}" format="YYYY-MM-DD" value-format="YYYY-MM-DD"
+                        style="width: 100%" placeholder="请选择${comment}"/>
+          </Form.Item>
+#end
+#end
+#end
+#end
+        </div>
+#if($table.sub)
+        <div class="form-grid__full sub-table-section">
+          <div class="sub-table-header">
+            <span>${subTable.functionName}信息</span>
+            <Space :size="8">
+              <Button size="small" type="primary" @click="addSubRow">
+                <IconifyIcon class="btn-icon" icon="lucide:plus"/>
+                添加
+              </Button>
+              <Button size="small" danger @click="deleteSubRows">
+                <IconifyIcon class="btn-icon" icon="lucide:trash-2"/>
+                删除
+              </Button>
+            </Space>
+          </div>
+          <Table
+            :data-source="subRows"
+            :pagination="false"
+            :row-selection="{ selectedRowKeys: subSelectedRowKeys, onChange: handleSubSelectionChange }"
+            :scroll="{ x: 700 }"
+            row-key="index"
+            size="small"
+          >
+            <Table.Column title="序号" dataIndex="index" width="70" align="center"/>
+#foreach($column in $subTable.columns)
+#if(!$column.pk && $column.javaField != $subTableFkclassName)
+#set($parentheseIndex=$column.columnComment.indexOf("（"))
+#if($parentheseIndex != -1)
+#set($comment=$column.columnComment.substring(0, $parentheseIndex))
+#else
+#set($comment=$column.columnComment)
+#end
+#set($dictType=$column.dictType)
+#if($column.htmlType == "input")
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="160">
+              <template #bodyCell="{ record }">
+                <Input v-model:value="record.${column.javaField}" placeholder="请输入${comment}"/>
+              </template>
+            </Table.Column>
+#elseif($column.htmlType == "datetime")
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="180">
+              <template #bodyCell="{ record }">
+                <DatePicker v-model:value="record.${column.javaField}" format="YYYY-MM-DD" value-format="YYYY-MM-DD"
+                            style="width: 100%"/>
+              </template>
+            </Table.Column>
+#elseif(($column.htmlType == "select" || $column.htmlType == "radio") && $dictType != '')
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="160">
+              <template #bodyCell="{ record }">
+                <Select v-model:value="record.${column.javaField}" :options="dictMap['${column.dictType}'] ?? []"
+                        style="width: 100%"/>
+              </template>
+            </Table.Column>
+#elseif(($column.htmlType == "select" || $column.htmlType == "radio") && $dictType)
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="160">
+              <template #bodyCell="{ record }">
+                <Select v-model:value="record.${column.javaField}" placeholder="请选择${comment}"
+                        style="width: 100%"/>
+              </template>
+            </Table.Column>
+#elseif($column.htmlType == "textarea")
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="220">
+              <template #bodyCell="{ record }">
+                <Input.TextArea v-model:value="record.${column.javaField}" :auto-size="{ minRows: 1, maxRows: 3 }"/>
+              </template>
+            </Table.Column>
+#else
+            <Table.Column title="${comment}" dataIndex="${column.javaField}" width="160"/>
+#end
+#end
+#end
+          </Table>
+        </div>
+#end
+      </Form>
+    </Modal>
+#if($genView)
+    <${BusinessName}ViewDrawer ref="viewDrawerRef"/>
+#end
+  </Page>
+</template>
+
+<style scoped>
+.${businessName}-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.${businessName}-page :deep(.ant-card) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.${businessName}-page :deep(.ant-card-body) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.search-panel {
+  flex-shrink: 0;
+  padding: 16px 16px 4px;
+  background: #f6f8fa;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+}
+
+.search-form .ant-form-item {
+  margin-right: 24px;
+  margin-bottom: 12px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 8px 16px;
+}
+
+.btn-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 16px;
+}
+
+.form-grid__full {
+  grid-column: 1 / -1;
+}
+
+.sub-table-section {
+  margin-top: 8px;
+}
+
+.sub-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid__full {
+    grid-column: auto;
+  }
+}
+</style>

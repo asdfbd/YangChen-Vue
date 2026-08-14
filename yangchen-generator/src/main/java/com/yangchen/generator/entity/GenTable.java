@@ -75,9 +75,9 @@ public class GenTable {
     private String tplCategory;
 
     /**
-     * 前端类型（element-ui模版 element-plus模版 element-plus-typescript模版）
+     * 前端类型（antd-vue-typescript 模版）
      */
-    @Schema(description = "前端类型（element-ui模版 element-plus模版 element-plus-typescript模版）")
+    @Schema(description = "前端类型（antd-vue-typescript 模版）")
     private String tplWebType;
 
     /**

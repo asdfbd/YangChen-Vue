@@ -1,57 +1,100 @@
-import request from '@/utils/request'
-import type { AjaxResult, TableDataInfo, ${BusinessName}QueryParams, ${ClassName} } from '@/types'
+import type {Recordable} from '@vben/types';
 
-// 查询${functionName}列表
-#if($table.tree)
-export function list${BusinessName}(query?: ${BusinessName}QueryParams): Promise
-<AjaxResult<${ClassName}[]>> {
-#else
-export function list${BusinessName}(query: ${BusinessName}QueryParams): Promise
-<TableDataInfo<${ClassName}[]>> {
+import {requestClient} from '#/api/request';
+
+/** ${functionName} */
+export interface ${ClassName} {
+#foreach($column in $columns)
+    #set($type = "string")
+    #if($column.pk)
+        #set($type = "number | string")
+    #elseif($column.javaType == "Long" || $column.javaType == "Integer")
+        #set($type = "number")
+    #elseif($column.javaType == "Boolean")
+        #set($type = "boolean")
+    #end
+  /** ${column.columnComment} */
+  ${column.javaField}?: ${type};
 #end
-return request({
-url: '/${moduleName}/${businessName}/list',
-method: 'get',
-params: query
-})
+#if($table.sub)
+  /** ${subTable.functionName}信息 */
+  ${subclassName}List?: ${subClassName}[];
+#end
+
+  [key: string]: any;
 }
 
-// 查询${functionName}详细
-export function get${BusinessName}(${pkColumn.javaField}: number): Promise
-<AjaxResult<${ClassName}>> {
-return request({
-url: '/${moduleName}/${businessName}/' + ${pkColumn.javaField},
-method: 'get'
-})
+/** ${functionName}分页查询参数 */
+export interface ${BusinessName}QueryParams {
+  pageNum: number;
+  pageSize: number;
+#foreach($column in $columns)
+    #if($column.query && $column.queryType != "BETWEEN")
+        #set($type = "string")
+        #if($column.javaType == "Long" || $column.javaType == "Integer")
+            #set($type = "number")
+        #elseif($column.javaType == "Boolean")
+            #set($type = "boolean")
+        #end
+  /** ${column.columnComment} */
+  ${column.javaField}?: ${type};
+    #end
+#end
+  params?: Recordable<any>;
+}
+#if($table.sub)
+
+/** ${subTable.functionName} */
+export interface ${subClassName} {
+#foreach($column in $subTable.columns)
+    #set($type = "string")
+    #if($column.pk)
+        #set($type = "number | string")
+    #elseif($column.javaType == "Long" || $column.javaType == "Integer")
+        #set($type = "number")
+    #elseif($column.javaType == "Boolean")
+        #set($type = "boolean")
+    #end
+  /** ${column.columnComment} */
+  ${column.javaField}?: ${type};
+#end
+
+  [key: string]: any;
+}
+#end
+
+/** 查询${functionName}列表 */
+#if($table.tree)
+export async function list${BusinessName}Api(params?: ${BusinessName}QueryParams) {
+  return requestClient.get<${ClassName}[]>('/${moduleName}/${businessName}/list', {params});
+}
+#else
+export async function list${BusinessName}Api(params: ${BusinessName}QueryParams) {
+  return requestClient.get<{rows: ${ClassName}[]; total: number}>(
+    '/${moduleName}/${businessName}/list',
+    {params},
+  );
+}
+#end
+
+/** 查询${functionName}详情 */
+export async function get${BusinessName}Api(${pkColumn.javaField}: number | string) {
+  return requestClient.get<${ClassName}>(
+    '/${moduleName}/${businessName}/' + ${pkColumn.javaField},
+  );
 }
 
-// 新增${functionName}
-export function add${BusinessName}(data: ${ClassName}): Promise
-<AjaxResult> {
-    return request({
-    url: '/${moduleName}/${businessName}',
-    method: 'post',
-    data: data
-    })
-    }
+/** 新增${functionName} */
+export async function add${BusinessName}Api(data: ${ClassName}) {
+  return requestClient.post('/${moduleName}/${businessName}', data);
+}
 
-    // 修改${functionName}
-    export function update${BusinessName}(data: ${ClassName}): Promise
-    <AjaxResult> {
-        return request({
-        url: '/${moduleName}/${businessName}',
-        method: 'put',
-        data: data
-        })
-        }
+/** 修改${functionName} */
+export async function update${BusinessName}Api(data: ${ClassName}) {
+  return requestClient.put('/${moduleName}/${businessName}', data);
+}
 
-        // 删除${functionName}
-        export function del${BusinessName}(${pkColumn.javaField}: number | number[]): Promise
-        <AjaxResult> {
-            return request({
-            url: '/${moduleName}/${businessName}/' + ${pkColumn.javaField},
-            method: 'delete'
-            })
-            }
-
-
+/** 删除${functionName} */
+export async function del${BusinessName}Api(${pkColumn.javaField}s: (number | string)[]) {
+  return requestClient.delete('/${moduleName}/${businessName}/' + ${pkColumn.javaField}s.join(','));
+}
