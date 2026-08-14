@@ -45,8 +45,15 @@ public class JsonUtils {
         if (obj == null) {
             return null;
         }
-        Map<String, Object> map = MAPPER.convertValue(obj, new TypeReference<Map<String, Object>>() {
-        });
+        Map<String, Object> map;
+        try {
+            map = MAPPER.convertValue(obj, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (IllegalArgumentException e) {
+            // 标量值（Number/String/Boolean 等）无法转换为 Map，直接序列化。
+            // 例如操作日志记录 DELETE /menu/{menuId} 时，入参是 Long/Integer。
+            return toJsonString(obj);
+        }
         if (excludeProperties != null) {
             for (String name : excludeProperties) {
                 map.remove(name);

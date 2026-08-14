@@ -55,8 +55,8 @@
         where r.notice_id = #{noticeId}
         <if test="searchValue != null and searchValue != ''">
             and (
-            u.user_name like concat('%', #{searchValue}, '%')
-            or u.nick_name like concat('%', #{searchValue}, '%')
+            u.user_name like concat('%', #{searchValue}::text, '%')
+            or u.nick_name like concat('%', #{searchValue}::text, '%')
             )
         </if>
         order by r.read_time desc

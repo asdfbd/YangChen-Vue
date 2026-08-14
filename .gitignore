@@ -45,3 +45,8 @@ maven-tmp/
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml
+AGENTS.md
+CLAUDE.md
+findings.md
+progress.md
+task_plan.md

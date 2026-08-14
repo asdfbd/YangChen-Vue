@@ -18,6 +18,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 公告 信息操作处理
@@ -128,7 +129,7 @@ public class SysNoticeController extends BaseController {
     @ResponseBody
     public TableDataInfo readUsersList(Long noticeId, String searchValue) {
         startPage();
-        List<?> list = noticeReadService.selectReadUsersByNoticeId(noticeId, searchValue);
+        List<Map<String, Object>> list = noticeReadService.selectReadUsersByNoticeId(noticeId, searchValue);
         return getDataTable(list);
     }
 

@@ -94,10 +94,10 @@
         and t.table_name not like 'qrtz\_%' and t.table_name not like 'gen\_%'
         and t.table_name not in (select table_name from gen_table)
         <if test="genTable.tableName != null and genTable.tableName != ''">
-            and lower(t.table_name) like lower(concat('%', #{genTable.tableName}, '%'))
+            and lower(t.table_name) like lower(concat('%', #{genTable.tableName}::text, '%'))
         </if>
         <if test="genTable.tableComment != null and genTable.tableComment != ''">
-            and lower(coalesce(obj_description(c.oid), '')) like lower(concat('%', #{genTable.tableComment}, '%'))
+            and lower(coalesce(obj_description(c.oid), '')) like lower(concat('%', #{genTable.tableComment}::text, '%'))
         </if>
         order by t.table_name
     </select>

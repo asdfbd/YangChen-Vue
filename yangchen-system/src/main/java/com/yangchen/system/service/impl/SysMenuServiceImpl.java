@@ -2,6 +2,7 @@ package com.yangchen.system.service.impl;
 
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.yangchen.common.constant.Constants;
 import com.yangchen.common.constant.UserConstants;
@@ -156,47 +157,74 @@ public class SysMenuServiceImpl implements SysMenuService {
      */
     @Override
     public List<RouterVo> buildMenus(List<SysMenu> menus) {
-        List<RouterVo> routers = new LinkedList<RouterVo>();
+        List<RouterVo> routers = new LinkedList<>();
         for (SysMenu menu : menus) {
             RouterVo router = new RouterVo();
-            router.setHidden("1".equals(menu.getVisible()));
-            router.setName(getRouteName(menu));
-            router.setPath(getRouterPath(menu));
-            router.setComponent(getComponent(menu));
-            router.setQuery(menu.getQuery());
-            router.setMeta(new MetaVo(menu.getMenuName(), menu.getIcon(), StrUtil.equals("1", menu.getIsCache()), menu.getPath()));
+            router.setName(getRouteName(menu.getRouteName(), menu.getPath()));
+            router.setPath(getVbenRouterPath(menu));
+            router.setComponent(getVbenComponent(menu));
+            router.setMeta(buildVbenMeta(menu));
+
             List<SysMenu> cMenus = menu.getChildren();
-            if (cn.hutool.core.collection.CollUtil.isNotEmpty(cMenus) && UserConstants.TYPE_DIR.equals(menu.getMenuType())) {
-                router.setAlwaysShow(true);
-                router.setRedirect("noRedirect");
+            if (cn.hutool.core.collection.CollUtil.isNotEmpty(cMenus)) {
                 router.setChildren(buildMenus(cMenus));
-            } else if (isMenuFrame(menu)) {
-                router.setMeta(null);
-                List<RouterVo> childrenList = new ArrayList<RouterVo>();
-                RouterVo children = new RouterVo();
-                children.setPath(menu.getPath());
-                children.setComponent(menu.getComponent());
-                children.setName(getRouteName(menu.getRouteName(), menu.getPath()));
-                children.setMeta(new MetaVo(menu.getMenuName(), menu.getIcon(), StrUtil.equals("1", menu.getIsCache()), menu.getPath()));
-                children.setQuery(menu.getQuery());
-                childrenList.add(children);
-                router.setChildren(childrenList);
-            } else if (menu.getParentId().intValue() == MENU_ROOT_ID && isInnerLink(menu)) {
-                router.setMeta(new MetaVo(menu.getMenuName(), menu.getIcon()));
-                router.setPath("/");
-                List<RouterVo> childrenList = new ArrayList<RouterVo>();
-                RouterVo children = new RouterVo();
-                String routerPath = innerLinkReplaceEach(menu.getPath());
-                children.setPath(routerPath);
-                children.setComponent(UserConstants.INNER_LINK);
-                children.setName(getRouteName(menu.getRouteName(), routerPath));
-                children.setMeta(new MetaVo(menu.getMenuName(), menu.getIcon(), menu.getPath()));
-                childrenList.add(children);
-                router.setChildren(childrenList);
             }
             routers.add(router);
         }
         return routers;
+    }
+
+    /**
+     * 将菜单实体直接投影为 Vben RouteMeta，避免前端维护 RuoYi 协议兼容代码。
+     */
+    private MetaVo buildVbenMeta(SysMenu menu) {
+        MetaVo meta = new MetaVo();
+        meta.setIcon(menu.getIcon());
+        meta.setTitle(menu.getMenuName());
+        meta.setOrder(menu.getOrderNum());
+        if (StrUtil.equals("1", menu.getVisible())) {
+            meta.setHideInMenu(true);
+        }
+        if (StrUtil.equals("0", menu.getIsCache())) {
+            meta.setKeepAlive(true);
+        }
+        if (isInnerLink(menu)) {
+            meta.setLink(menu.getPath());
+        }
+        if (StrUtil.isNotBlank(menu.getQuery()) && JSONUtil.isTypeJSON(menu.getQuery())) {
+            meta.setQuery(new HashMap<>(JSONUtil.parseObj(menu.getQuery())));
+        }
+        return meta;
+    }
+
+    /**
+     * Vben 路由组件名只来自布局类型和数据库中的真实页面路径。
+     */
+    private String getVbenComponent(SysMenu menu) {
+        if (isInnerLink(menu)) {
+            return "IFrameView";
+        }
+        if (UserConstants.TYPE_DIR.equals(menu.getMenuType())) {
+            return menu.getParentId().equals(MENU_ROOT_ID) ? "BasicLayout" : "ParentView";
+        }
+        if (StrUtil.isNotBlank(menu.getComponent())) {
+            return menu.getComponent();
+        }
+        return "/_core/fallback/not-found";
+    }
+
+    /**
+     * 外链不能作为 vue-router path，使用稳定的本地路由地址，真实 URL 放在 meta.link。
+     */
+    private String getVbenRouterPath(SysMenu menu) {
+        if (isInnerLink(menu)) {
+            String routeName = getRouteName(menu.getRouteName(), menu.getMenuName());
+            return menu.getParentId().equals(MENU_ROOT_ID) ? "/external/" + routeName : "external/" + routeName;
+        }
+        if (menu.getParentId().equals(MENU_ROOT_ID) && UserConstants.TYPE_DIR.equals(menu.getMenuType())) {
+            return "/" + StrUtil.removePrefix(menu.getPath(), "/");
+        }
+        return menu.getPath();
     }
 
     /**
@@ -380,10 +408,6 @@ public class SysMenuServiceImpl implements SysMenuService {
      * @return 路由名称
      */
     public String getRouteName(SysMenu menu) {
-        // 非外链并且是一级目录（类型为目录）
-        if (isMenuFrame(menu)) {
-            return StrUtil.EMPTY;
-        }
         return getRouteName(menu.getRouteName(), menu.getPath());
     }
 

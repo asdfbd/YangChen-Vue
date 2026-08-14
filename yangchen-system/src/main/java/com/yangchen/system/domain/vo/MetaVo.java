@@ -1,77 +1,29 @@
 package com.yangchen.system.domain.vo;
 
-import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+import java.util.Map;
 
 /**
- * 路由显示信息
+ * Vben 路由元信息。
  *
- * @author yangchen
+ * /getRouters 直接输出前端路由协议，前端不再承担 RuoYi 字段转换。
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class MetaVo {
-    /**
-     * 设置该路由在侧边栏和面包屑中展示的名字
-     */
-    private String title;
-
-    /**
-     * 设置该路由的图标，对应路径src/assets/icons/svg
-     */
     private String icon;
 
-    /**
-     * 设置为true，则不会被 <keep-alive>缓存
-     */
-    private boolean noCache;
+    private Boolean hideInMenu;
 
-    /**
-     * 内链地址（http(s)://开头）
-     */
+    private Boolean keepAlive;
+
     private String link;
 
-    public MetaVo() {
-    }
+    private Integer order;
 
-    public MetaVo(String title, String icon) {
-        this.title = title;
-        this.icon = icon;
-    }
+    private Map<String, Object> query;
 
-    public MetaVo(String title, String icon, boolean noCache) {
-        this.title = title;
-        this.icon = icon;
-        this.noCache = noCache;
-    }
-
-    public MetaVo(String title, String icon, String link) {
-        this.title = title;
-        this.icon = icon;
-        this.link = link;
-    }
-
-    public MetaVo(String title, String icon, boolean noCache, String link) {
-        this.title = title;
-        this.icon = icon;
-        this.noCache = noCache;
-        if (StrUtil.startWithAnyIgnoreCase(link, "http://", "https://")) {
-            this.link = link;
-        }
-    }
-
-    public boolean isNoCache() {
-        return noCache;
-    }
-
-    public void setNoCache(boolean noCache) {
-        this.noCache = noCache;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
+    private String title;
 
     public String getIcon() {
         return icon;
@@ -81,11 +33,51 @@ public class MetaVo {
         this.icon = icon;
     }
 
+    public Boolean getHideInMenu() {
+        return hideInMenu;
+    }
+
+    public void setHideInMenu(Boolean hideInMenu) {
+        this.hideInMenu = hideInMenu;
+    }
+
+    public Boolean getKeepAlive() {
+        return keepAlive;
+    }
+
+    public void setKeepAlive(Boolean keepAlive) {
+        this.keepAlive = keepAlive;
+    }
+
     public String getLink() {
         return link;
     }
 
     public void setLink(String link) {
         this.link = link;
+    }
+
+    public Integer getOrder() {
+        return order;
+    }
+
+    public void setOrder(Integer order) {
+        this.order = order;
+    }
+
+    public Map<String, Object> getQuery() {
+        return query;
+    }
+
+    public void setQuery(Map<String, Object> query) {
+        this.query = query;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
     }
 }
