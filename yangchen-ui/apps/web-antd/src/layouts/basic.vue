@@ -5,12 +5,9 @@ import {computed, watch} from 'vue';
 import {useRouter} from 'vue-router';
 
 import {AuthenticationLoginExpiredModal} from '@vben/common-ui';
-import {VBEN_DOC_URL, VBEN_GITHUB_URL} from '@vben/constants';
 import {useWatermark} from '@vben/hooks';
-import {BookOpenText, CircleHelp, SvgGithubIcon} from '@vben/icons';
 import {preferences, usePreferences} from '@vben/preferences';
 import {useAccessStore, useUserStore} from '@vben/stores';
-import {openWindow} from '@vben/utils';
 
 import NoticeWidget from '#/components/notice/notice-widget.vue';
 import {$t} from '#/locales';

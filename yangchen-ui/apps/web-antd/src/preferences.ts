@@ -48,7 +48,8 @@ export const overridesPreferences = defineOverridesPreferences({
     },
   },
   copyright: {
-    //appCopyrightPreferences
+    ...appCopyrightPreferences,
+    enable: false,
   },
 });
 

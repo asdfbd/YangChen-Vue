@@ -12,9 +12,9 @@ defineOptions({
 });
 
 withDefaults(defineProps<Props>(), {
-  companyName: 'Vben Admin',
+  companyName: '',
   companySiteLink: '',
-  date: '2024',
+  date: '',
   icp: '',
   icpLink: '',
 });
@@ -25,7 +25,7 @@ withDefaults(defineProps<Props>(), {
     <!-- ICP Link -->
     <a
       v-if="icp"
-      :href="icpLink || 'https://beian.miit.gov.cn/'"
+      :href="icpLink || '/'"
       class="mx-1 hover:text-primary-hover"
       rel="noopener noreferrer"
       target="_blank"
