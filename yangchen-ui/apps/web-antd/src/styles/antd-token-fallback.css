@@ -1,0 +1,15 @@
+/* antd v5 设计 token（--ant-*）的静态声明。
+   ant-design-vue 的 --ant-* 变量仅在 ConfigProvider 开启 cssVar 时才由运行时注入，
+   源码里没有声明，导致 IDE 报 "Cannot resolve custom property"（无法解析自定义属性）。
+   这里按 antd 内置默认值声明（含暗色模式），既消除 IDE 提示，也为未开启 cssVar 提供兜底值。
+   若日后开启 cssVar，运行时注入的真实 token 会按级联顺序覆盖这些值，无冲突。 */
+
+:root {
+  --ant-color-border-secondary: #f0f0f0;
+  --ant-color-fill-quaternary: rgb(0 0 0 / 2%);
+}
+
+html.dark {
+  --ant-color-border-secondary: #303030;
+  --ant-color-fill-quaternary: rgb(255 255 255 / 4%);
+}
