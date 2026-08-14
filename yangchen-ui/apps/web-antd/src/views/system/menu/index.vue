@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import {computed, onMounted, reactive, ref} from 'vue';
 
-import {Page} from '@vben/common-ui';
+import {IconPicker, Page} from '@vben/common-ui';
 import {IconifyIcon} from '@vben/icons';
 import {useAccessStore} from '@vben/stores';
 
@@ -463,8 +463,13 @@ onMounted(loadData);
               </Radio>
             </Radio.Group>
           </Form.Item>
-          <Form.Item v-if="form.menuType !== 'F'" label="菜单图标" name="icon"><Input
-            v-model:value="form.icon" allow-clear placeholder="例如 lucide:settings"/></Form.Item>
+          <Form.Item v-if="form.menuType !== 'F'" label="菜单图标" name="icon">
+            <IconPicker
+              :model-value="form.icon ?? ''"
+              prefix="lucide"
+              @update:model-value="form.icon = $event"
+            />
+          </Form.Item>
           <Form.Item label="显示排序" name="orderNum">
             <InputNumber v-model:value="form.orderNum" :min="0" :precision="0" style="width: 100%"/>
           </Form.Item>
