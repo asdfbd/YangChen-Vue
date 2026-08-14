@@ -225,18 +225,29 @@ function handleStatusChange(row: SysRole, checked: boolean) {
   });
 }
 
-// ===== 删除 =====
-function handleDelete(row: SysRole) {
-  const roleIds = row.roleId ?? selectedRowKeys.value.join(',');
+// ===== 删除（确认提示角色名称，实际传角色 ID） =====
+/** 由选中的角色 ID 反查名称（用于确认提示文案） */
+function selectedRoleNames(): string[] {
+  return selectedRowKeys.value.map((id) => {
+    const row = roleList.value.find(
+      (item) => String(item.roleId) === String(id),
+    );
+    return row?.roleName || String(id);
+  });
+}
+
+function handleDelete(row?: SysRole) {
+  const roleId = row?.roleId;
+  const names = row
+    ? [row.roleName || String(roleId)]
+    : selectedRoleNames();
   Modal.confirm({
-    content: `是否确认删除角色编号为"${roleIds}"的数据项？`,
+    content: `是否确认删除角色"${names.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {
       await deleteRoleApi(
-        row.roleId
-          ? [row.roleId]
-          : (selectedRowKeys.value as number[]),
+        roleId ? [roleId] : (selectedRowKeys.value as number[]),
       );
       message.success('删除成功');
       selectedRowKeys.value = [];
@@ -610,7 +621,7 @@ onMounted(loadData);
               v-if="hasPermi('system:role:remove')"
               :disabled="selectedRowKeys.length === 0"
               danger
-              @click="handleDelete"
+              @click="handleDelete()"
             >
               <IconifyIcon class="btn-icon" icon="lucide:trash-2"/>
               删除

@@ -246,13 +246,26 @@ function handleStatusChange(row: SysUser, checked: boolean) {
   });
 }
 
-// ===== 删除 =====
+// ===== 删除（确认提示用户名称，实际传用户 ID） =====
+/** 由选中的用户 ID 反查名称（用于确认提示文案） */
+function selectedUserNames(): string[] {
+  return (selectedRowKeys.value as string[]).map((id) => {
+    const row = userList.value.find(
+      (item) => String(item.userId) === String(id),
+    );
+    return row?.nickName || row?.userName || String(id);
+  });
+}
+
 function handleDelete(row?: SysUser) {
   const userIds = row
     ? [String(row.userId)]
     : (selectedRowKeys.value as string[]);
+  const names = row
+    ? [row.nickName || row.userName || String(row.userId)]
+    : selectedUserNames();
   Modal.confirm({
-    content: `是否确认删除用户编号为"${userIds.join(',')}"的数据项？`,
+    content: `是否确认删除用户"${names.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {

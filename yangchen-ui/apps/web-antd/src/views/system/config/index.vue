@@ -239,11 +239,24 @@ async function handleSubmit() {
   }
 }
 
+/** 由选中的参数 ID 反查名称（用于确认提示文案） */
+function selectedConfigNames(): string[] {
+  return selectedRowKeys.value.map((id) => {
+    const row = configList.value.find(
+      (item) => String(item.configId) === String(id),
+    );
+    return row?.configName || String(id);
+  });
+}
+
 function handleDelete(row?: SysConfig) {
   const configIds = row ? [row.configId as Key] : selectedRowKeys.value;
+  const names = row
+    ? [row.configName || String(row.configId)]
+    : selectedConfigNames();
   Modal.confirm({
     cancelText: '取消',
-    content: `是否确认删除参数编号为“${configIds.join(',')}”的数据项？`,
+    content: `是否确认删除参数"${names.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {

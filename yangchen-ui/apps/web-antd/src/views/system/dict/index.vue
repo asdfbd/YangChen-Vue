@@ -225,11 +225,24 @@ async function handleSubmit() {
   }
 }
 
+/** 由选中的字典 ID 反查名称（用于确认提示文案） */
+function selectedDictNames(): string[] {
+  return selectedRowKeys.value.map((id) => {
+    const row = typeList.value.find(
+      (item) => String(item.dictId) === String(id),
+    );
+    return row?.dictName || String(id);
+  });
+}
+
 function handleDelete(row?: SysDictType) {
   const dictIds = row ? [row.dictId as Key] : selectedRowKeys.value;
+  const names = row
+    ? [row.dictName || String(row.dictId)]
+    : selectedDictNames();
   Modal.confirm({
     cancelText: '取消',
-    content: `是否确认删除字典编号为“${dictIds.join(',')}”的数据项？`,
+    content: `是否确认删除字典"${names.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {

@@ -169,13 +169,26 @@ const visibleColumns = computed(() => {
   return out;
 });
 
-// ===== 删除 =====
+/** 由选中的岗位 ID 反查名称（用于确认提示文案） */
+function selectedPostNames(): string[] {
+  return (selectedRowKeys.value as string[]).map((id) => {
+    const row = postList.value.find(
+      (item) => String(item.postId) === String(id),
+    );
+    return row?.postName || String(id);
+  });
+}
+
+// ===== 删除（确认提示岗位名称，实际传岗位 ID） =====
 function handleDelete(row?: SysPost) {
   const postIds = row
     ? [String(row.postId)]
     : (selectedRowKeys.value as string[]);
+  const names = row
+    ? [row.postName || String(row.postId)]
+    : selectedPostNames();
   Modal.confirm({
-    content: `是否确认删除岗位编号为"${postIds.join(',')}"的数据项？`,
+    content: `是否确认删除岗位"${names.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {

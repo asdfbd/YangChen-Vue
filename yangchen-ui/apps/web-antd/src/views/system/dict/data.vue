@@ -249,11 +249,24 @@ async function handleSubmit() {
   }
 }
 
+/** 由选中的字典编码反查标签（用于确认提示文案） */
+function selectedDictLabels(): string[] {
+  return selectedRowKeys.value.map((code) => {
+    const row = dataList.value.find(
+      (item) => String(item.dictCode) === String(code),
+    );
+    return row?.dictLabel || String(code);
+  });
+}
+
 function handleDelete(row?: SysDictData) {
   const codes = row ? [row.dictCode as Key] : selectedRowKeys.value;
+  const labels = row
+    ? [row.dictLabel || String(row.dictCode)]
+    : selectedDictLabels();
   Modal.confirm({
     cancelText: '取消',
-    content: `是否确认删除字典编码为“${codes.join(',')}”的数据项？`,
+    content: `是否确认删除字典数据"${labels.join('、')}"的数据项？`,
     okText: '删除',
     okType: 'danger',
     onOk: async () => {
