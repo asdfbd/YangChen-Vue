@@ -1,26 +1,23 @@
 <script lang="ts" setup>
-import {computed, nextTick, ref, watch} from 'vue';
+import {computed, ref, watch} from 'vue';
 
 import {IconifyIcon} from '@vben/icons';
 import {usePreferences} from '@vben/preferences';
 import {useUserStore} from '@vben/stores';
 
-import {
-  buildGreeting,
-  genId,
-  nowTime,
-  QUICK_QUESTIONS,
-  resolveReply,
-  type ChatMessage,
-} from './knowledge';
+import ChatPanel from '#/components/chat-panel/index.vue';
+import type {ChatMessage} from '#/components/chat-panel/types';
+import {genId, nowTime} from '#/components/chat-panel/utils';
+
+import {buildGreeting, QUICK_QUESTIONS, resolveReply} from './knowledge';
 
 defineOptions({name: 'AiAssistant'});
 
 /**
  * 扬辰 AI 智能助手（全局悬浮组件）
  * - 挂载于 basic.vue 布局，全站页面可见
- * - 当前为界面演示模式：回复由本地知识库（knowledge.ts）生成，
- *   接入后端大模型接口时只需替换 resolveReply 的实现
+ * - 界面复用通用 ChatPanel；本组件负责：悬浮球拖拽、面板定位、会话持久化、演示问答
+ * - 接入真实后端时，替换 handleSend 的实现即可（流式场景改用 busy + 自行推送）
  */
 
 const STORAGE_KEY = 'yangchen-ai-assistant-v2';
@@ -35,10 +32,6 @@ const {isDark} = usePreferences();
 const userStore = useUserStore();
 
 const open = ref(false);
-const typing = ref(false);
-const draft = ref('');
-const listRef = ref<HTMLElement>();
-const textareaRef = ref<HTMLElement>();
 const dragging = ref(false);
 
 /** 悬浮球被拖拽后的位置（left/top，相对视口）；null 表示未拖拽，使用默认右下角 */
@@ -68,82 +61,36 @@ const panelStyle = computed(() => {
   return {left: `${left}px`, bottom: `${vh - pos.top + FAB_GAP}px`};
 });
 
+/* ===== 消息数据（由 ChatPanel 通过 v-model 驱动） ===== */
 const messages = ref<ChatMessage[]>([]);
-const quickQuestions = QUICK_QUESTIONS;
 
 const displayName = computed(
   () => userStore.userInfo?.realName || userStore.userInfo?.username || '',
 );
 
-const canSend = computed(() => draft.value.trim().length > 0 && !typing.value);
-
-/** 仅当对话刚开始（只有问候语）时展示快捷提问 */
-const showSuggestions = computed(
-  () => !typing.value && messages.value.length <= 1,
-);
-
-function createMessage(
-  role: ChatMessage['role'],
-  content: string,
-): ChatMessage {
-  return {id: genId(), role, content, time: nowTime()};
-}
-
-function pushMessage(role: ChatMessage['role'], content: string) {
-  messages.value.push(createMessage(role, content));
-  scrollToBottom();
-}
-
-function scrollToBottom() {
-  nextTick(() => {
-    const el = listRef.value;
-    if (el) el.scrollTop = el.scrollHeight;
-  });
-}
-
-async function send(text?: string) {
-  const content = (text ?? draft.value).trim();
-  if (!content || typing.value) return;
-  draft.value = '';
-  resetTextarea();
-  pushMessage('user', content);
-  typing.value = true;
-  scrollToBottom();
-
-  // 模拟思考耗时；接入真实接口后，此处替换为 await sendAiChatApi(content)
-  const delay = 600 + Math.random() * 900;
-  window.setTimeout(async () => {
-    const reply = await resolveReply(content);
-    typing.value = false;
-    pushMessage('assistant', reply);
-  }, delay);
-}
-
-function handleKeydown(e: KeyboardEvent) {
-  // 中文输入法组词中不触发发送
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault();
-    send();
-  }
-}
-
-function autosize(e: Event) {
-  const el = e.target as HTMLTextAreaElement;
-  el.style.height = 'auto';
-  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-}
-
-function resetTextarea() {
-  nextTick(() => {
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto';
-    }
-  });
+function createGreeting(): ChatMessage {
+  return {
+    id: genId(),
+    role: 'assistant',
+    content: buildGreeting(displayName.value),
+    time: nowTime(),
+  };
 }
 
 function handleNewChat() {
-  messages.value = [createMessage('assistant', buildGreeting(displayName.value))];
-  scrollToBottom();
+  messages.value = [createGreeting()];
+}
+
+/**
+ * 演示问答：返回字符串 -> ChatPanel 自动显示"正在输入"并追加回复。
+ * 接入真实后端时替换为：async (text) => (await sendAiChatApi(text)).reply
+ * 流式场景：返回 void，在 @send-start 中自行推送并控制 busy。
+ */
+function handleSend(text: string): Promise<string> {
+  const delay = 600 + Math.random() * 900;
+  return new Promise((resolve) => {
+    window.setTimeout(() => resolve(resolveReply(text)), delay);
+  });
 }
 
 /* ===== 会话持久化（localStorage） ===== */
@@ -167,10 +114,7 @@ function loadFromStorage(): StoredState | null {
 
 const storedState = loadFromStorage();
 const stored = storedState?.messages;
-messages.value =
-  stored && stored.length
-    ? stored
-    : [createMessage('assistant', buildGreeting(displayName.value))];
+messages.value = stored && stored.length ? stored : [createGreeting()];
 
 if (storedState?.open) {
   open.value = true;
@@ -237,7 +181,7 @@ function onPointerDown(e: PointerEvent) {
   window.addEventListener('pointercancel', onUp);
 }
 
-/* ===== 面板交互：自动聚焦 + Esc 关闭 ===== */
+/* ===== Esc 关闭 ===== */
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     open.value = false;
@@ -246,43 +190,16 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
 watch(open, (val) => {
   if (val) {
-    nextTick(() => textareaRef.value?.focus());
     window.addEventListener('keydown', onGlobalKeydown);
   } else {
     window.removeEventListener('keydown', onGlobalKeydown);
   }
 });
-
-/* ===== 轻量 Markdown 渲染（先转义再格式化，杜绝 XSS） ===== */
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function renderContent(text: string): string {
-  const blocks: string[] = [];
-  let html = text.replace(/```([\s\S]*?)```/g, (_match, code: string) => {
-    blocks.push(code.trim());
-    return `\u0000AI_CODE_${blocks.length - 1}\u0000`;
-  });
-  html = escapeHtml(html);
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/`([^`\n]+)`/g, '<code class="ai-code-inline">$1</code>');
-  html = html.replace(/\n/g, '<br/>');
-  html = html.replace(/\u0000AI_CODE_(\d+)\u0000/g, (_match, i: string) => {
-    return `<pre class="ai-code"><code>${escapeHtml(blocks[Number(i)] ?? '')}</code></pre>`;
-  });
-  return html;
-}
 </script>
 
 <template>
   <Teleport to="body">
-    <!-- ===== 聊天面板 ===== -->
+    <!-- ===== 聊天面板（通用 ChatPanel + 悬浮定位壳） ===== -->
     <Transition name="ai-panel">
       <section
         v-if="open"
@@ -291,132 +208,19 @@ function renderContent(text: string): string {
         role="dialog"
         aria-label="AI 智能助手"
       >
-        <!-- 头部 -->
-        <header class="ai-head">
-          <div class="ai-head__brand">
-            <span class="ai-orb">
-              <IconifyIcon icon="lucide:sparkles"/>
-            </span>
-            <div class="ai-head__text">
-              <div class="ai-head__title">
-                小辰<em>AI</em>
-              </div>
-              <div class="ai-head__status">
-                <i class="ai-status-dot"></i>
-                在线 · 随时待命
-              </div>
-            </div>
-          </div>
-          <div class="ai-head__actions">
-            <button
-              class="ai-icon-btn"
-              title="新对话"
-              aria-label="新对话"
-              @click="handleNewChat"
-            >
-              <IconifyIcon icon="lucide:rotate-ccw"/>
-            </button>
-            <button
-              class="ai-icon-btn"
-              title="收起"
-              aria-label="收起面板"
-              @click="open = false"
-            >
-              <IconifyIcon icon="lucide:chevron-down"/>
-            </button>
-          </div>
-        </header>
-
-        <!-- 消息区 -->
-        <div ref="listRef" class="ai-body">
-          <TransitionGroup name="ai-msg">
-            <div
-              v-for="msg in messages"
-              :key="msg.id"
-              :class="['ai-msg', `ai-msg--${msg.role}`]"
-            >
-              <template v-if="msg.role === 'assistant'">
-                <span class="ai-avatar">
-                  <IconifyIcon icon="lucide:sparkles"/>
-                </span>
-                <div class="ai-bubble">
-                  <div
-                    class="ai-bubble__text"
-                    v-html="renderContent(msg.content)"
-                  ></div>
-                  <span class="ai-bubble__time">{{ msg.time }}</span>
-                </div>
-              </template>
-              <template v-else>
-                <div class="ai-bubble">
-                  <div class="ai-bubble__text">{{ msg.content }}</div>
-                  <span class="ai-bubble__time">{{ msg.time }}</span>
-                </div>
-                <span class="ai-avatar ai-avatar--user">
-                  <IconifyIcon icon="lucide:user"/>
-                </span>
-              </template>
-            </div>
-          </TransitionGroup>
-
-          <!-- 正在输入 -->
-          <Transition name="ai-msg">
-            <div v-if="typing" class="ai-msg ai-msg--assistant">
-              <span class="ai-avatar">
-                <IconifyIcon icon="lucide:sparkles"/>
-              </span>
-              <div class="ai-bubble ai-bubble--typing">
-                <span class="ai-typing-dot"></span>
-                <span class="ai-typing-dot"></span>
-                <span class="ai-typing-dot"></span>
-              </div>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- 底部输入 -->
-        <footer class="ai-foot">
-          <Transition name="ai-chips">
-            <div v-if="showSuggestions" class="ai-chips">
-              <button
-                v-for="q in quickQuestions"
-                :key="q"
-                class="ai-chip"
-                @click="send(q)"
-              >
-                <IconifyIcon icon="lucide:sparkle" class="ai-chip__icon"/>
-                {{ q }}
-              </button>
-            </div>
-          </Transition>
-
-          <div class="ai-inputbar">
-            <textarea
-              ref="textareaRef"
-              v-model="draft"
-              class="ai-textarea"
-              rows="1"
-              :maxlength="2000"
-              placeholder="输入你的问题，Enter 发送，Shift + Enter 换行"
-              aria-label="输入问题"
-              @input="autosize"
-              @keydown="handleKeydown"
-            ></textarea>
-            <button
-              class="ai-send"
-              :disabled="!canSend"
-              aria-label="发送"
-              @click="send()"
-            >
-              <IconifyIcon icon="lucide:send"/>
-            </button>
-          </div>
-
-          <div class="ai-hint">
-            <IconifyIcon icon="lucide:info" class="ai-hint__icon"/>
-            演示模式 · 回复来自本地知识库，后端接口接入后自动升级
-          </div>
-        </footer>
+        <ChatPanel
+          v-model="messages"
+          title="小辰"
+          badge="AI"
+          subtitle="在线 · 随时待命"
+          avatar-icon="lucide:sparkles"
+          :suggestions="QUICK_QUESTIONS"
+          :send="handleSend"
+          hint="演示模式 · 回复来自本地知识库，后端接口接入后自动升级"
+          :autofocus="true"
+          @close="open = false"
+          @new-chat="handleNewChat"
+        />
       </section>
     </Transition>
 
@@ -439,43 +243,8 @@ function renderContent(text: string): string {
 
 <style scoped>
 /* ============================================================
-   主题 token：全部消费项目全局 CSS 变量（--primary / --card /
-   --foreground / --muted / --border 等），随系统主题与主色自动适配
-   ============================================================ */
-.ai-panel {
-  --ai-bg: hsl(var(--card));
-  --ai-text: hsl(var(--foreground));
-  --ai-sub: hsl(var(--muted-foreground));
-  --ai-line: hsl(var(--border));
-  --ai-surface: hsl(var(--muted));
-  --ai-primary: hsl(var(--primary));
-  --ai-primary-soft: hsl(var(--primary) / 0.08);
-  --ai-chip-bg: hsl(var(--primary) / 0.06);
-  --ai-chip-border: hsl(var(--primary) / 0.3);
-  --ai-code-bg: #111827;
-  --ai-code-text: #e2e8f0;
-  --ai-code-inline-bg: hsl(var(--primary) / 0.12);
-  --ai-code-inline-text: hsl(var(--primary));
-  --ai-success: hsl(var(--success));
-  /* 主色渐变（用黑白叠层模拟深浅，兼容所有浏览器） */
-  --ai-gradient: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.16),
-      transparent 40%,
-      rgba(0, 0, 0, 0.18)
-    ),
-    hsl(var(--primary));
-  --ai-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.12),
-    0 24px 48px -16px rgba(15, 23, 42, 0.22);
-}
-
-.ai-panel.is-dark {
-  --ai-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.5),
-    0 24px 48px -16px rgba(0, 0, 0, 0.6);
-}
-
-/* ============================================================
-   面板
+   悬浮定位壳：固定定位 + 尺寸 + 圆角 + 阴影 + 顶部高光线；
+   内部由通用 ChatPanel 填充（界面样式见 chat-panel/index.vue）
    ============================================================ */
 .ai-panel {
   position: fixed;
@@ -487,11 +256,17 @@ function renderContent(text: string): string {
   width: min(400px, calc(100vw - 32px));
   height: min(640px, calc(100vh - 160px));
   overflow: hidden;
-  border: 1px solid var(--ai-line);
+  border: 1px solid hsl(var(--border));
   border-radius: 18px;
-  background: var(--ai-bg);
-  box-shadow: var(--ai-shadow);
+  background: hsl(var(--card));
+  box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.12),
+    0 24px 48px -16px rgba(15, 23, 42, 0.22);
   transform-origin: right bottom;
+}
+
+.ai-panel.is-dark {
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.5),
+    0 24px 48px -16px rgba(0, 0, 0, 0.6);
 }
 
 /* 顶部细渐变高光线（品牌点睛） */
@@ -514,421 +289,9 @@ function renderContent(text: string): string {
 }
 
 /* ============================================================
-   头部
-   ============================================================ */
-.ai-head {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 12px 16px;
-  border-bottom: 1px solid var(--ai-line);
-}
-
-.ai-head__brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ai-orb {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  color: hsl(var(--primary-foreground));
-  border-radius: 50%;
-  background: var(--ai-gradient);
-  box-shadow: 0 4px 10px -2px hsl(var(--primary) / 0.5);
-}
-
-.ai-orb :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-
-.ai-head__title {
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--ai-text);
-  letter-spacing: 0.5px;
-}
-
-.ai-head__title em {
-  margin-left: 5px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 600;
-  vertical-align: 2px;
-  color: var(--ai-primary);
-  border-radius: 5px;
-  background: var(--ai-primary-soft);
-}
-
-.ai-head__status {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--ai-sub);
-}
-
-.ai-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ai-success);
-  box-shadow: 0 0 0 3px hsl(var(--success) / 0.2);
-}
-
-.ai-head__actions {
-  display: flex;
-  gap: 2px;
-}
-
-.ai-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  color: var(--ai-sub);
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background 0.15s;
-}
-
-.ai-icon-btn:hover {
-  color: var(--ai-text);
-  background: var(--ai-surface);
-}
-
-.ai-icon-btn :deep(svg) {
-  width: 15px;
-  height: 15px;
-}
-
-/* ============================================================
-   消息区
-   ============================================================ */
-.ai-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 16px 16px 8px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(107, 114, 128, 0.3) transparent;
-}
-
-.ai-body::-webkit-scrollbar {
-  width: 5px;
-}
-
-.ai-body::-webkit-scrollbar-thumb {
-  border-radius: 99px;
-  background: rgba(107, 114, 128, 0.3);
-}
-
-.ai-msg {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.ai-msg--user {
-  flex-direction: row-reverse;
-}
-
-.ai-avatar {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-}
-
-.ai-msg--assistant > .ai-avatar {
-  color: hsl(var(--primary-foreground));
-  background: var(--ai-gradient);
-  box-shadow: 0 3px 8px -2px hsl(var(--primary) / 0.45);
-}
-
-.ai-msg--user > .ai-avatar {
-  color: var(--ai-sub);
-  border: 1px solid var(--ai-line);
-  background: var(--ai-surface);
-}
-
-.ai-avatar :deep(svg) {
-  width: 13px;
-  height: 13px;
-}
-
-.ai-bubble {
-  position: relative;
-  max-width: 78%;
-  padding: 9px 12px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  word-break: break-word;
-}
-
-.ai-msg--assistant .ai-bubble {
-  color: var(--ai-text);
-  border: 1px solid var(--ai-line);
-  border-radius: 4px 14px 14px 14px;
-  background: var(--ai-surface);
-}
-
-.ai-msg--user .ai-bubble {
-  color: hsl(var(--primary-foreground));
-  border-radius: 14px 4px 14px 14px;
-  background: var(--ai-gradient);
-  box-shadow: 0 5px 14px -5px hsl(var(--primary) / 0.5);
-}
-
-.ai-bubble__text {
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.ai-bubble__text :deep(strong) {
-  font-weight: 600;
-  color: var(--ai-primary);
-}
-
-.ai-msg--user .ai-bubble__text :deep(strong) {
-  color: hsl(var(--primary-foreground));
-}
-
-.ai-bubble__time {
-  display: block;
-  margin-top: 3px;
-  font-size: 10px;
-  opacity: 0.5;
-}
-
-.ai-code-inline {
-  padding: 1px 6px;
-  font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
-  font-size: 12px;
-  color: var(--ai-code-inline-text);
-  border-radius: 5px;
-  background: var(--ai-code-inline-bg);
-}
-
-.ai-code {
-  margin: 8px 0 4px;
-  padding: 10px 12px;
-  overflow-x: auto;
-  font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--ai-code-text);
-  border-radius: 10px;
-  background: var(--ai-code-bg);
-}
-
-/* 正在输入 */
-.ai-bubble--typing {
-  display: flex;
-  gap: 5px;
-  padding: 13px 15px;
-}
-
-.ai-typing-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ai-primary);
-  animation: ai-blink 1.1s infinite ease-in-out;
-}
-
-.ai-typing-dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.ai-typing-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes ai-blink {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
-
-/* ============================================================
-   底部输入
-   ============================================================ */
-.ai-foot {
-  flex-shrink: 0;
-  padding: 10px 14px 12px;
-  border-top: 1px solid var(--ai-line);
-}
-
-.ai-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.ai-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  font-size: 12px;
-  color: var(--ai-primary);
-  border: 1px solid var(--ai-chip-border);
-  border-radius: 999px;
-  background: var(--ai-chip-bg);
-  cursor: pointer;
-  transition:
-    background 0.18s,
-    transform 0.18s,
-    box-shadow 0.18s;
-}
-
-.ai-chip:hover {
-  background: hsl(var(--primary) / 0.14);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px -4px hsl(var(--primary) / 0.4);
-}
-
-.ai-chip__icon {
-  width: 12px;
-  height: 12px;
-}
-
-.ai-inputbar {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 6px 6px 6px 12px;
-  border: 1px solid var(--ai-line);
-  border-radius: 12px;
-  background: var(--ai-surface);
-  transition:
-    border-color 0.2s,
-    box-shadow 0.2s;
-}
-
-.ai-inputbar:focus-within {
-  border-color: hsl(var(--primary) / 0.55);
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
-}
-
-.ai-textarea {
-  flex: 1;
-  max-height: 120px;
-  padding: 5px 0;
-  font-family: inherit;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--ai-text);
-  resize: none;
-  border: none;
-  outline: none;
-  background: transparent;
-}
-
-.ai-textarea::placeholder {
-  color: var(--ai-sub);
-}
-
-.ai-send {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  color: hsl(var(--primary-foreground));
-  border: none;
-  border-radius: 10px;
-  background: var(--ai-gradient);
-  box-shadow: 0 4px 10px -2px hsl(var(--primary) / 0.5);
-  cursor: pointer;
-  transition:
-    transform 0.15s,
-    opacity 0.15s;
-}
-
-.ai-send:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.ai-send:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.ai-send:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.ai-send :deep(svg) {
-  width: 15px;
-  height: 15px;
-}
-
-.ai-hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin-top: 9px;
-  font-size: 10.5px;
-  color: var(--ai-sub);
-}
-
-.ai-hint__icon {
-  width: 11px;
-  height: 11px;
-}
-
-/* ============================================================
    悬浮入口（可拖拽）
    ============================================================ */
 .ai-fab {
-  /* 悬浮按钮独立于 .ai-panel 作用域，自带所需变量 */
-  --ai-primary: hsl(var(--primary));
-  --ai-gradient: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.18),
-      transparent 42%,
-      rgba(0, 0, 0, 0.2)
-    ),
-    hsl(var(--primary));
-  --ai-success: hsl(var(--success));
-  --ai-fab-border: hsl(var(--card));
-  --ai-fab-shadow: 0 12px 28px -8px hsl(var(--primary) / 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
-
   position: fixed;
   right: 24px;
   bottom: 24px;
@@ -941,8 +304,15 @@ function renderContent(text: string): string {
   color: hsl(var(--primary-foreground));
   border: none;
   border-radius: 50%;
-  background: var(--ai-gradient);
-  box-shadow: var(--ai-fab-shadow);
+  background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.18),
+      transparent 42%,
+      rgba(0, 0, 0, 0.2)
+    ),
+    hsl(var(--primary));
+  box-shadow: 0 12px 28px -8px hsl(var(--primary) / 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
   cursor: grab;
   transition:
     transform 0.18s ease,
@@ -950,11 +320,6 @@ function renderContent(text: string): string {
   user-select: none;
   -webkit-user-drag: none;
   touch-action: none;
-}
-
-.ai-fab.is-dark {
-  --ai-fab-shadow: 0 12px 28px -8px hsl(var(--primary) / 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 
 .ai-fab:hover {
@@ -986,9 +351,9 @@ function renderContent(text: string): string {
   bottom: 1px;
   width: 10px;
   height: 10px;
-  border: 2px solid var(--ai-fab-border);
+  border: 2px solid hsl(var(--card));
   border-radius: 50%;
-  background: var(--ai-success);
+  background: hsl(var(--success));
 }
 
 .ai-fab__tip {
@@ -1055,36 +420,10 @@ function renderContent(text: string): string {
   transform: scale(0.8);
 }
 
-.ai-msg-enter-active {
-  transition: all 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-
-.ai-msg-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.ai-chips-enter-active,
-.ai-chips-leave-active {
-  transition: all 0.2s ease;
-}
-
-.ai-chips-enter-from,
-.ai-chips-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ai-panel,
-  .ai-fab,
-  .ai-msg,
-  .ai-chips {
+  .ai-fab {
     transition: none !important;
-  }
-
-  .ai-typing-dot {
-    animation: none !important;
   }
 }
 
@@ -1109,4 +448,3 @@ function renderContent(text: string): string {
   }
 }
 </style>
-
