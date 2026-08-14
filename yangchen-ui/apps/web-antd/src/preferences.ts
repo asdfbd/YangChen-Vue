@@ -22,8 +22,8 @@ export const overridesPreferences = defineOverridesPreferences({
     name: import.meta.env.VITE_APP_TITLE,
     // 前后端路由合并：同时展示前端路由与 RuoYi 后端菜单
     accessMode: 'mixed',
-    // dashboard 首页已移除，登录/刷新后默认重定向到个人中心
-    defaultHomePath: '/profile',
+    // 登录/刷新后默认进入首页
+    defaultHomePath: '/dashboard',
 
     theme: {
       mode: 'auto'

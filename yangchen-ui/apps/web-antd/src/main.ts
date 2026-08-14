@@ -1,4 +1,4 @@
-import {initPreferences} from '@vben/preferences';
+import {initPreferences, updatePreferences} from '@vben/preferences';
 import {unmountGlobalLoading} from '@vben/utils';
 
 import {overridesPreferences, preferencesExtension} from './preferences';
@@ -18,6 +18,14 @@ async function initApplication() {
     extension: preferencesExtension,
     namespace,
     overrides: overridesPreferences,
+  });
+
+  // 兼容旧缓存：缓存中可能残留旧的 defaultHomePath（如 /profile），
+  // 这里以配置为准强制同步，确保登录/刷新后落在首页。
+  updatePreferences({
+    app: {
+      defaultHomePath: overridesPreferences.app?.defaultHomePath ?? '/dashboard',
+    },
   });
 
   // 启动应用并挂载

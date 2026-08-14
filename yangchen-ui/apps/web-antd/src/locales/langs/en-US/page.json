@@ -1,4 +1,7 @@
 {
+  "dashboard": {
+    "title": "Home"
+  },
   "auth": {
     "login": "Login",
     "register": "Register",
