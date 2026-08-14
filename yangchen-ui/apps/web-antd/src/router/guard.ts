@@ -5,7 +5,7 @@ import {preferences} from '@vben/preferences';
 import {useAccessStore, useTabbarStore, useUserStore} from '@vben/stores';
 import {startProgress, stopProgress} from '@vben/utils';
 
-import {accessRoutes, coreRouteNames} from '#/router/routes';
+import {accessRoutes, publicRouteNames} from '#/router/routes';
 import {useAuthStore} from '#/store';
 
 import {generateAccess} from './access';
@@ -51,7 +51,7 @@ function setupAccessGuard(router: Router) {
     const authStore = useAuthStore();
 
     // 基本路由，这些路由不需要进入权限拦截
-    if (coreRouteNames.includes(to.name as string)) {
+    if (publicRouteNames.includes(to.name as string)) {
       if (to.path === LOGIN_PATH && accessStore.accessToken) {
         return decodeURIComponent(
           (to.query?.redirect as string) ||

@@ -29,9 +29,12 @@ const routes: RouteRecordRaw[] = [
   fallbackNotFoundRoute,
 ];
 
-/** 基本路由列表，这些路由不需要进入权限拦截 */
-const coreRouteNames = traverseTreeValues(coreRoutes, (route) => route.name);
+/** 无需鉴权的公开路由列表。 */
+const publicRouteNames = traverseTreeValues(
+  coreRoutes.filter((route) => route.path === '/auth'),
+  (route) => route.name,
+);
 
 /** 有权限校验的路由列表，包含动态路由和静态路由 */
 const accessRoutes = [...dynamicRoutes, ...staticRoutes];
-export {accessRoutes, coreRouteNames, routes};
+export {accessRoutes, publicRouteNames, routes};
