@@ -38,7 +38,10 @@
             <groupId>com.yangchen</groupId>
             <artifactId>yangchen-generator</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>com.yangchen</groupId>
+            <artifactId>yangchen-ai</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

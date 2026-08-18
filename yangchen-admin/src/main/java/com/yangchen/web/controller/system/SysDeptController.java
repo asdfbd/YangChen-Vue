@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.constant.UserConstants;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.entity.SysDept;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.system.service.SysDeptService;
@@ -37,7 +37,7 @@ public class SysDeptController extends BaseController {
     @Operation(summary = "获取部门列表")
     @PreAuthorize("@ss.hasPermi('system:dept:list')")
     @GetMapping("/list")
-    public AjaxResult list(SysDept dept) {
+    public R list(SysDept dept) {
         List<SysDept> depts = deptService.selectDeptList(dept);
         return success(depts);
     }
@@ -48,7 +48,7 @@ public class SysDeptController extends BaseController {
     @Operation(summary = "查询部门列表")
     @PreAuthorize("@ss.hasPermi('system:dept:list')")
     @GetMapping("/list/exclude/{deptId}")
-    public AjaxResult excludeChild(@PathVariable(value = "deptId", required = false) @Parameter(description = "部门ID") Long deptId) {
+    public R excludeChild(@PathVariable(value = "deptId", required = false) @Parameter(description = "部门ID") Long deptId) {
         List<SysDept> depts = deptService.selectDeptList(new SysDept());
         depts.removeIf(d -> d.getDeptId().intValue() == deptId || cn.hutool.core.collection.CollUtil.contains(StrUtil.split(d.getAncestors(), ","), deptId + ""));
         return success(depts);
@@ -60,7 +60,7 @@ public class SysDeptController extends BaseController {
     @Operation(summary = "根据部门编号获取详细信息")
     @PreAuthorize("@ss.hasPermi('system:dept:query')")
     @GetMapping(value = "/{deptId}")
-    public AjaxResult getInfo(@PathVariable @Parameter(description = "部门ID") Long deptId) {
+    public R getInfo(@PathVariable @Parameter(description = "部门ID") Long deptId) {
         deptService.checkDeptDataScope(deptId);
         return success(deptService.selectDeptById(deptId));
     }
@@ -72,7 +72,7 @@ public class SysDeptController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:dept:add')")
     @Log(title = "部门管理", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@Validated @RequestBody SysDept dept) {
+    public R add(@Validated @RequestBody SysDept dept) {
         if (!deptService.checkDeptNameUnique(dept)) {
             return error("新增部门'" + dept.getDeptName() + "'失败，部门名称已存在");
         }
@@ -87,7 +87,7 @@ public class SysDeptController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:dept:edit')")
     @Log(title = "部门管理", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@Validated @RequestBody SysDept dept) {
+    public R edit(@Validated @RequestBody SysDept dept) {
         Long deptId = dept.getDeptId();
         deptService.checkDeptDataScope(deptId);
         if (!deptService.checkDeptNameUnique(dept)) {
@@ -108,7 +108,7 @@ public class SysDeptController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:dept:edit')")
     @Log(title = "保存部门排序", businessType = BusinessType.UPDATE)
     @PutMapping("/updateSort")
-    public AjaxResult updateSort(@RequestBody Map<String, String> params) {
+    public R updateSort(@RequestBody Map<String, String> params) {
         String[] deptIds = params.get("deptIds").split(",");
         String[] orderNums = params.get("orderNums").split(",");
         deptService.updateDeptSort(deptIds, orderNums);
@@ -122,7 +122,7 @@ public class SysDeptController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:dept:remove')")
     @Log(title = "部门管理", businessType = BusinessType.DELETE)
     @DeleteMapping("/{deptId}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "部门ID") Long deptId) {
+    public R remove(@PathVariable @Parameter(description = "部门ID") Long deptId) {
         if (deptService.hasChildByDeptId(deptId)) {
             return warn("存在下级部门,不允许删除");
         }

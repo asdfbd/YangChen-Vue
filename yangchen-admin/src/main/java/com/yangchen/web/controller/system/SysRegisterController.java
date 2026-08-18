@@ -2,7 +2,7 @@ package com.yangchen.web.controller.system;
 
 import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.RegisterBody;
 import com.yangchen.framework.web.service.SysRegisterService;
 import com.yangchen.system.service.SysConfigService;
@@ -29,7 +29,7 @@ public class SysRegisterController extends BaseController {
 
     @Operation(summary = "用户注册")
     @PostMapping("/register")
-    public AjaxResult register(@RequestBody RegisterBody user) {
+    public R register(@RequestBody RegisterBody user) {
         if (!("true".equals(configService.selectConfigByKey("sys.account.registerUser")))) {
             return error("当前系统没有开启注册功能！");
         }

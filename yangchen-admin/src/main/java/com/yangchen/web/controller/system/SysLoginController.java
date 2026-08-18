@@ -2,7 +2,7 @@ package com.yangchen.web.controller.system;
 
 import cn.hutool.core.util.ObjectUtil;
 import com.yangchen.common.constant.Constants;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.LoginBody;
 import com.yangchen.common.core.domain.model.LoginUser;
 import com.yangchen.common.core.entity.SysMenu;
@@ -58,8 +58,8 @@ public class SysLoginController {
      */
     @Operation(summary = "登录方法")
     @PostMapping("/login")
-    public AjaxResult login(@RequestBody LoginBody loginBody) {
-        AjaxResult ajax = AjaxResult.success();
+    public R login(@RequestBody LoginBody loginBody) {
+        R ajax = R.ok();
         // 生成令牌
         String token = loginService.login(loginBody.getUsername(), loginBody.getPassword(), loginBody.getCode(),
                 loginBody.getUuid());
@@ -74,7 +74,7 @@ public class SysLoginController {
      */
     @Operation(summary = "获取用户信息")
     @GetMapping("getInfo")
-    public AjaxResult getInfo() {
+    public R getInfo() {
         LoginUser loginUser = SecurityUtils.getLoginUser();
         SysUser user = loginUser.getUser();
         // 角色集合
@@ -85,7 +85,7 @@ public class SysLoginController {
             loginUser.setPermissions(permissions);
             tokenService.refreshToken(loginUser);
         }
-        AjaxResult ajax = AjaxResult.success();
+        R ajax = R.ok();
         ajax.put("user", user);
         ajax.put("roles", roles);
         ajax.put("permissions", permissions);
@@ -102,10 +102,10 @@ public class SysLoginController {
      */
     @Operation(summary = "获取路由信息")
     @GetMapping("getRouters")
-    public AjaxResult getRouters() {
+    public R getRouters() {
         Long userId = SecurityUtils.getUserId();
         List<SysMenu> menus = menuService.selectMenuTreeByUserId(userId);
-        return AjaxResult.success(menuService.buildMenus(menus));
+        return R.ok(menuService.buildMenus(menus));
     }
 
     // 获取用户密码自定义配置规则

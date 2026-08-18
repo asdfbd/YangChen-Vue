@@ -2,7 +2,7 @@ package com.yangchen.web.controller.monitor;
 
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.common.utils.poi.ExcelUtil;
@@ -57,7 +57,7 @@ public class SysLogininforController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:logininfor:remove')")
     @Log(title = "登录日志", businessType = BusinessType.DELETE)
     @DeleteMapping("/{infoIds}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "访问记录ID") Long[] infoIds) {
+    public R remove(@PathVariable @Parameter(description = "访问记录ID") Long[] infoIds) {
         return toAjax(logininforService.deleteLogininforByIds(infoIds));
     }
 
@@ -65,7 +65,7 @@ public class SysLogininforController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:logininfor:remove')")
     @Log(title = "登录日志", businessType = BusinessType.CLEAN)
     @DeleteMapping("/clean")
-    public AjaxResult clean() {
+    public R clean() {
         logininforService.cleanLogininfor();
         return success();
     }
@@ -74,7 +74,7 @@ public class SysLogininforController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:logininfor:unlock')")
     @Log(title = "账户解锁", businessType = BusinessType.OTHER)
     @GetMapping("/unlock/{userName}")
-    public AjaxResult unlock(@PathVariable("userName") @Parameter(description = "用户名") String userName) {
+    public R unlock(@PathVariable("userName") @Parameter(description = "用户名") String userName) {
         passwordService.clearLoginRecordCache(userName);
         return success();
     }

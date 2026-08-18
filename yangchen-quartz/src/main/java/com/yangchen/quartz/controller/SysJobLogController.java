@@ -2,7 +2,7 @@ package com.yangchen.quartz.controller;
 
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.common.utils.poi.ExcelUtil;
@@ -54,7 +54,7 @@ public class SysJobLogController extends BaseController {
      */
     @PreAuthorize("@ss.hasPermi('monitor:job:query')")
     @GetMapping(value = "/{jobLogId}")
-    public AjaxResult getInfo(@PathVariable Long jobLogId) {
+    public R getInfo(@PathVariable Long jobLogId) {
         return success(jobLogService.selectJobLogById(jobLogId));
     }
 
@@ -65,7 +65,7 @@ public class SysJobLogController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:remove')")
     @Log(title = "定时任务调度日志", businessType = BusinessType.DELETE)
     @DeleteMapping("/{jobLogIds}")
-    public AjaxResult remove(@PathVariable Long[] jobLogIds) {
+    public R remove(@PathVariable Long[] jobLogIds) {
         return toAjax(jobLogService.deleteJobLogByIds(jobLogIds));
     }
 
@@ -75,7 +75,7 @@ public class SysJobLogController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:remove')")
     @Log(title = "调度日志", businessType = BusinessType.CLEAN)
     @DeleteMapping("/clean")
-    public AjaxResult clean() {
+    public R clean() {
         jobLogService.cleanJobLog();
         return success();
     }

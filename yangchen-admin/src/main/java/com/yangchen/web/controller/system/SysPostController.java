@@ -2,7 +2,7 @@ package com.yangchen.web.controller.system;
 
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.common.utils.poi.ExcelUtil;
@@ -59,7 +59,7 @@ public class SysPostController extends BaseController {
     @Operation(summary = "根据岗位编号获取详细信息")
     @PreAuthorize("@ss.hasPermi('system:post:query')")
     @GetMapping(value = "/{postId}")
-    public AjaxResult getInfo(@PathVariable @Parameter(description = "岗位ID") Long postId) {
+    public R getInfo(@PathVariable @Parameter(description = "岗位ID") Long postId) {
         return success(postService.selectPostById(postId));
     }
 
@@ -70,7 +70,7 @@ public class SysPostController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:post:add')")
     @Log(title = "岗位管理", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@Validated @RequestBody SysPost post) {
+    public R add(@Validated @RequestBody SysPost post) {
         if (!postService.checkPostNameUnique(post)) {
             return error("新增岗位'" + post.getPostName() + "'失败，岗位名称已存在");
         } else if (!postService.checkPostCodeUnique(post)) {
@@ -87,7 +87,7 @@ public class SysPostController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:post:edit')")
     @Log(title = "岗位管理", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@Validated @RequestBody SysPost post) {
+    public R edit(@Validated @RequestBody SysPost post) {
         if (!postService.checkPostNameUnique(post)) {
             return error("修改岗位'" + post.getPostName() + "'失败，岗位名称已存在");
         } else if (!postService.checkPostCodeUnique(post)) {
@@ -104,7 +104,7 @@ public class SysPostController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:post:remove')")
     @Log(title = "岗位管理", businessType = BusinessType.DELETE)
     @DeleteMapping("/{postIds}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "岗位ID") Long[] postIds) {
+    public R remove(@PathVariable @Parameter(description = "岗位ID") Long[] postIds) {
         return toAjax(postService.deletePostByIds(postIds));
     }
 
@@ -113,7 +113,7 @@ public class SysPostController extends BaseController {
      */
     @Operation(summary = "获取岗位选择框列表")
     @GetMapping("/optionselect")
-    public AjaxResult optionselect() {
+    public R optionselect() {
         List<SysPost> posts = postService.selectPostAll();
         return success(posts);
     }

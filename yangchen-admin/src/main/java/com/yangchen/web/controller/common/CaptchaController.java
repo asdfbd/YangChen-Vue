@@ -6,7 +6,7 @@ import com.google.code.kaptcha.Producer;
 import com.yangchen.common.config.YangChenConfig;
 import com.yangchen.common.constant.CacheConstants;
 import com.yangchen.common.constant.Constants;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.redis.RedisCache;
 import com.yangchen.system.service.SysConfigService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,8 +48,8 @@ public class CaptchaController {
      */
     @Operation(summary = "生成验证码")
     @GetMapping("/captchaImage")
-    public AjaxResult getCode(HttpServletResponse response) throws IOException {
-        AjaxResult ajax = AjaxResult.success();
+    public R getCode(HttpServletResponse response) throws IOException {
+        R ajax = R.ok();
         boolean captchaEnabled = configService.selectCaptchaEnabled();
         ajax.put("captchaEnabled", captchaEnabled);
         if (!captchaEnabled) {
@@ -81,7 +81,7 @@ public class CaptchaController {
         try {
             ImageIO.write(image, "jpg", os);
         } catch (IOException e) {
-            return AjaxResult.error(e.getMessage());
+            return R.error(e.getMessage());
         }
 
         ajax.put("uuid", uuid);

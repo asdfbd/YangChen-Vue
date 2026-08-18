@@ -3,7 +3,7 @@ package com.yangchen.common.core.controller;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.yangchen.common.constant.HttpStatus;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.LoginUser;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.utils.DateUtils;
@@ -78,43 +78,43 @@ public class BaseController {
     /**
      * 返回成功
      */
-    public AjaxResult success() {
-        return AjaxResult.success();
+    public <T> R<T> success() {
+        return R.ok();
     }
 
     /**
      * 返回失败消息
      */
-    public AjaxResult error() {
-        return AjaxResult.error();
+    public <T> R<T> error() {
+        return R.error();
     }
 
     /**
      * 返回成功消息
      */
-    public AjaxResult success(String message) {
-        return AjaxResult.success(message);
+    public <T> R<T> success(String message) {
+        return R.ok(message);
     }
 
     /**
      * 返回成功消息
      */
-    public AjaxResult success(Object data) {
-        return AjaxResult.success(data);
+    public <T> R<T> success(T data) {
+        return R.ok(data);
     }
 
     /**
      * 返回失败消息
      */
-    public AjaxResult error(String message) {
-        return AjaxResult.error(message);
+    public <T> R<T> error(String message) {
+        return R.error(message);
     }
 
     /**
      * 返回警告消息
      */
-    public AjaxResult warn(String message) {
-        return AjaxResult.warn(message);
+    public <T> R<T> warn(String message) {
+        return R.warn(message);
     }
 
     /**
@@ -123,8 +123,8 @@ public class BaseController {
      * @param rows 影响行数
      * @return 操作结果
      */
-    protected AjaxResult toAjax(int rows) {
-        return rows > 0 ? AjaxResult.success() : AjaxResult.error();
+    protected <T> R<T> toAjax(int rows) {
+        return rows > 0 ? R.ok() : R.error();
     }
 
     /**
@@ -133,7 +133,7 @@ public class BaseController {
      * @param result 结果
      * @return 操作结果
      */
-    protected AjaxResult toAjax(boolean result) {
+    protected <T> R<T> toAjax(boolean result) {
         return result ? success() : error();
     }
 

@@ -2,7 +2,7 @@ package com.yangchen.framework.security.handle;
 
 import cn.hutool.core.util.ObjectUtil;
 import com.yangchen.common.constant.Constants;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.LoginUser;
 import com.yangchen.common.utils.JsonUtils;
 import com.yangchen.common.utils.MessageUtils;
@@ -46,6 +46,6 @@ public class LogoutSuccessHandlerImpl implements LogoutSuccessHandler {
             // 记录用户退出日志
             AsyncManager.me().execute(AsyncFactory.recordLogininfor(userName, Constants.LOGOUT, MessageUtils.message("user.logout.success")));
         }
-        ServletUtils.renderString(response, JsonUtils.toJsonString(AjaxResult.success(MessageUtils.message("user.logout.success"))));
+        ServletUtils.renderString(response, JsonUtils.toJsonString(R.ok(MessageUtils.message("user.logout.success"))));
     }
 }

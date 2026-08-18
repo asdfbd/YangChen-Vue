@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.constant.Constants;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.common.exception.job.TaskException;
@@ -60,7 +60,7 @@ public class SysJobController extends BaseController {
      */
     @PreAuthorize("@ss.hasPermi('monitor:job:query')")
     @GetMapping(value = "/{jobId}")
-    public AjaxResult getInfo(@PathVariable("jobId") Long jobId) {
+    public R getInfo(@PathVariable("jobId") Long jobId) {
         return success(jobService.selectJobById(jobId));
     }
 
@@ -70,7 +70,7 @@ public class SysJobController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:add')")
     @Log(title = "定时任务", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@RequestBody SysJob job) throws SchedulerException, TaskException {
+    public R add(@RequestBody SysJob job) throws SchedulerException, TaskException {
         if (!CronUtils.isValid(job.getCronExpression())) {
             return error("新增任务'" + job.getJobName() + "'失败，Cron表达式不正确");
         } else if (StrUtil.containsIgnoreCase(job.getInvokeTarget(), Constants.LOOKUP_RMI)) {
@@ -94,7 +94,7 @@ public class SysJobController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:edit')")
     @Log(title = "定时任务", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@RequestBody SysJob job) throws SchedulerException, TaskException {
+    public R edit(@RequestBody SysJob job) throws SchedulerException, TaskException {
         if (!CronUtils.isValid(job.getCronExpression())) {
             return error("修改任务'" + job.getJobName() + "'失败，Cron表达式不正确");
         } else if (StrUtil.containsIgnoreCase(job.getInvokeTarget(), Constants.LOOKUP_RMI)) {
@@ -118,7 +118,7 @@ public class SysJobController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:changeStatus')")
     @Log(title = "定时任务", businessType = BusinessType.UPDATE)
     @PutMapping("/changeStatus")
-    public AjaxResult changeStatus(@RequestBody SysJob job) throws SchedulerException {
+    public R changeStatus(@RequestBody SysJob job) throws SchedulerException {
         SysJob newJob = jobService.selectJobById(job.getJobId());
         newJob.setStatus(job.getStatus());
         return toAjax(jobService.changeStatus(newJob));
@@ -130,7 +130,7 @@ public class SysJobController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:changeStatus')")
     @Log(title = "定时任务", businessType = BusinessType.UPDATE)
     @PutMapping("/run")
-    public AjaxResult run(@RequestBody SysJob job) throws SchedulerException {
+    public R run(@RequestBody SysJob job) throws SchedulerException {
         boolean result = jobService.run(job);
         return result ? success() : error("任务不存在或已过期！");
     }
@@ -141,7 +141,7 @@ public class SysJobController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:job:remove')")
     @Log(title = "定时任务", businessType = BusinessType.DELETE)
     @DeleteMapping("/{jobIds}")
-    public AjaxResult remove(@PathVariable Long[] jobIds) throws SchedulerException {
+    public R remove(@PathVariable Long[] jobIds) throws SchedulerException {
         jobService.deleteJobByIds(jobIds);
         return success();
     }

@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.constant.UserConstants;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.entity.SysMenu;
 import com.yangchen.common.enums.BusinessType;
 import com.yangchen.system.service.SysMenuService;
@@ -37,7 +37,7 @@ public class SysMenuController extends BaseController {
     @Operation(summary = "获取菜单列表")
     @PreAuthorize("@ss.hasPermi('system:menu:list')")
     @GetMapping("/list")
-    public AjaxResult list(SysMenu menu) {
+    public R list(SysMenu menu) {
         List<SysMenu> menus = menuService.selectMenuList(menu, getUserId());
         return success(menus);
     }
@@ -48,7 +48,7 @@ public class SysMenuController extends BaseController {
     @Operation(summary = "根据菜单编号获取详细信息")
     @PreAuthorize("@ss.hasPermi('system:menu:query')")
     @GetMapping(value = "/{menuId}")
-    public AjaxResult getInfo(@PathVariable @Parameter(description = "菜单ID") Long menuId) {
+    public R getInfo(@PathVariable @Parameter(description = "菜单ID") Long menuId) {
         return success(menuService.selectMenuById(menuId));
     }
 
@@ -57,7 +57,7 @@ public class SysMenuController extends BaseController {
      */
     @Operation(summary = "获取菜单下拉树列表")
     @GetMapping("/treeselect")
-    public AjaxResult treeselect(SysMenu menu) {
+    public R treeselect(SysMenu menu) {
         List<SysMenu> menus = menuService.selectMenuList(menu, getUserId());
         return success(menuService.buildMenuTreeSelect(menus));
     }
@@ -67,9 +67,9 @@ public class SysMenuController extends BaseController {
      */
     @Operation(summary = "加载对应角色菜单列表树")
     @GetMapping(value = "/roleMenuTreeselect/{roleId}")
-    public AjaxResult roleMenuTreeselect(@PathVariable("roleId") @Parameter(description = "角色ID") Long roleId) {
+    public R roleMenuTreeselect(@PathVariable("roleId") @Parameter(description = "角色ID") Long roleId) {
         List<SysMenu> menus = menuService.selectMenuList(getUserId());
-        AjaxResult ajax = AjaxResult.success();
+        R ajax = R.ok();
         ajax.put("checkedKeys", menuService.selectMenuListByRoleId(roleId));
         ajax.put("menus", menuService.buildMenuTreeSelect(menus));
         return ajax;
@@ -82,7 +82,7 @@ public class SysMenuController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:menu:add')")
     @Log(title = "菜单管理", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@Validated @RequestBody SysMenu menu) {
+    public R add(@Validated @RequestBody SysMenu menu) {
         if (!menuService.checkMenuNameUnique(menu)) {
             return error("新增菜单'" + menu.getMenuName() + "'失败，菜单名称已存在");
         } else if (UserConstants.YES_FRAME.equals(menu.getIsFrame()) && !StrUtil.startWithAnyIgnoreCase(menu.getPath(), "http://", "https://")) {
@@ -101,7 +101,7 @@ public class SysMenuController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:menu:edit')")
     @Log(title = "菜单管理", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@Validated @RequestBody SysMenu menu) {
+    public R edit(@Validated @RequestBody SysMenu menu) {
         if (!menuService.checkMenuNameUnique(menu)) {
             return error("修改菜单'" + menu.getMenuName() + "'失败，菜单名称已存在");
         } else if (UserConstants.YES_FRAME.equals(menu.getIsFrame()) && !StrUtil.startWithAnyIgnoreCase(menu.getPath(), "http://", "https://")) {
@@ -122,7 +122,7 @@ public class SysMenuController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:menu:edit')")
     @Log(title = "保存菜单排序", businessType = BusinessType.UPDATE)
     @PutMapping("/updateSort")
-    public AjaxResult updateSort(@RequestBody Map<String, String> params) {
+    public R updateSort(@RequestBody Map<String, String> params) {
         String[] menuIds = params.get("menuIds").split(",");
         String[] orderNums = params.get("orderNums").split(",");
         menuService.updateMenuSort(menuIds, orderNums);
@@ -136,7 +136,7 @@ public class SysMenuController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:menu:remove')")
     @Log(title = "菜单管理", businessType = BusinessType.DELETE)
     @DeleteMapping("/{menuId}")
-    public AjaxResult remove(@PathVariable("menuId") @Parameter(description = "菜单ID") Long menuId) {
+    public R remove(@PathVariable("menuId") @Parameter(description = "菜单ID") Long menuId) {
         if (menuService.hasChildByMenuId(menuId)) {
             return warn("存在子菜单,不允许删除");
         }

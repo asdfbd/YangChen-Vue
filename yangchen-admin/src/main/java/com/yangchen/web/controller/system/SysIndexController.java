@@ -2,7 +2,7 @@ package com.yangchen.web.controller.system;
 
 import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.config.YangChenConfig;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.entity.SysUser;
 import com.yangchen.common.utils.SecurityUtils;
 import com.yangchen.system.service.SysUserService;
@@ -47,20 +47,20 @@ public class SysIndexController {
      */
     @Operation(summary = "解锁屏幕")
     @PostMapping("/unlockscreen")
-    public AjaxResult unlockScreen(@RequestBody Map<String, String> body) {
+    public R unlockScreen(@RequestBody Map<String, String> body) {
         String password = body.get("password");
         if (StrUtil.isEmpty(password)) {
-            return AjaxResult.error("密码不能为空");
+            return R.error("密码不能为空");
         }
         String username = SecurityUtils.getUsername();
         SysUser user = userService.selectUserByUserName(username);
         if (user == null) {
-            return AjaxResult.error("服务器超时，请重新登录");
+            return R.error("服务器超时，请重新登录");
         }
         if (!SecurityUtils.matchesPassword(password, user.getPassword())) {
-            return AjaxResult.error("密码错误，请重新输入");
+            return R.error("密码错误，请重新输入");
         }
 
-        return AjaxResult.success("解锁成功");
+        return R.ok("解锁成功");
     }
 }

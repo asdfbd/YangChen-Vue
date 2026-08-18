@@ -2,7 +2,7 @@ package com.yangchen.web.controller.common;
 
 import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.config.YangChenConfig;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.utils.file.FileUploadUtils;
 import com.yangchen.common.utils.file.FileUtils;
 import com.yangchen.framework.config.ServerConfig;
@@ -69,21 +69,21 @@ public class CommonController {
      */
     @Operation(summary = "通用上传请求（单个）")
     @PostMapping("/upload")
-    public AjaxResult uploadFile(MultipartFile file) throws Exception {
+    public R uploadFile(MultipartFile file) throws Exception {
         try {
             // 上传文件路径
             String filePath = YangChenConfig.getUploadPath();
             // 上传并返回新文件名称
             String fileName = FileUploadUtils.upload(filePath, file);
             String url = serverConfig.getUrl() + fileName;
-            AjaxResult ajax = AjaxResult.success();
+            R ajax = R.ok();
             ajax.put("url", url);
             ajax.put("fileName", fileName);
             ajax.put("newFileName", FileUtils.getName(fileName));
             ajax.put("originalFilename", file.getOriginalFilename());
             return ajax;
         } catch (Exception e) {
-            return AjaxResult.error(e.getMessage());
+            return R.error(e.getMessage());
         }
     }
 
@@ -92,7 +92,7 @@ public class CommonController {
      */
     @Operation(summary = "通用上传请求（多个）")
     @PostMapping("/uploads")
-    public AjaxResult uploadFiles(List<MultipartFile> files) throws Exception {
+    public R uploadFiles(List<MultipartFile> files) throws Exception {
         try {
             // 上传文件路径
             String filePath = YangChenConfig.getUploadPath();
@@ -109,14 +109,14 @@ public class CommonController {
                 newFileNames.add(FileUtils.getName(fileName));
                 originalFilenames.add(file.getOriginalFilename());
             }
-            AjaxResult ajax = AjaxResult.success();
+            R ajax = R.ok();
             ajax.put("urls", StrUtil.join(FILE_DELIMITER, urls));
             ajax.put("fileNames", StrUtil.join(FILE_DELIMITER, fileNames));
             ajax.put("newFileNames", StrUtil.join(FILE_DELIMITER, newFileNames));
             ajax.put("originalFilenames", StrUtil.join(FILE_DELIMITER, originalFilenames));
             return ajax;
         } catch (Exception e) {
-            return AjaxResult.error(e.getMessage());
+            return R.error(e.getMessage());
         }
     }
 

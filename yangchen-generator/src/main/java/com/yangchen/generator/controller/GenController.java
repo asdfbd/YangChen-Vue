@@ -6,7 +6,7 @@ import com.alibaba.druid.sql.ast.SQLStatement;
 import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.core.text.Convert;
 import com.yangchen.common.enums.BusinessType;
@@ -66,7 +66,7 @@ public class GenController extends BaseController {
     @Operation(summary = "获取代码生成信息")
     @PreAuthorize("@ss.hasPermi('tool:gen:query')")
     @GetMapping(value = "/{tableId}")
-    public AjaxResult getInfo(@PathVariable @Parameter(description = "表ID") Long tableId) {
+    public R getInfo(@PathVariable @Parameter(description = "表ID") Long tableId) {
         GenTable table = genTableService.selectGenTableById(tableId);
         List<GenTable> tables = genTableService.selectGenTableAll();
         List<GenTableColumn> list = genTableColumnService.selectGenTableColumnListByTableId(tableId);
@@ -110,8 +110,8 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasPermi('tool:gen:import')")
     @Log(title = "代码生成", businessType = BusinessType.IMPORT)
     @PostMapping("/importTable")
-    public AjaxResult importTableSave(@RequestParam("tables") @Parameter(description = "表名") String tables,
-                                      @RequestParam("tplWebType") @Parameter(description = "模板类型") String tplWebType) {
+    public R importTableSave(@RequestParam("tables") @Parameter(description = "表名") String tables,
+                             @RequestParam("tplWebType") @Parameter(description = "模板类型") String tplWebType) {
         String[] tableNames = Convert.toStrArray(tables);
         // 查询表信息
         List<GenTable> tableList = genTableService.selectDbTableListByNames(tableNames);
@@ -126,8 +126,8 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasRole('admin')")
     @Log(title = "创建表", businessType = BusinessType.OTHER)
     @PostMapping("/createTable")
-    public AjaxResult createTableSave(@RequestParam("sql") @Parameter(description = "SQL语句") String sql,
-                                      @RequestParam("tplWebType") @Parameter(description = "模板类型") String tplWebType) {
+    public R createTableSave(@RequestParam("sql") @Parameter(description = "SQL语句") String sql,
+                             @RequestParam("tplWebType") @Parameter(description = "模板类型") String tplWebType) {
         try {
             SqlUtil.filterKeyword(sql);
             List<SQLStatement> sqlStatements = SQLUtils.parseStatements(sql, DbType.mysql);
@@ -144,10 +144,10 @@ public class GenController extends BaseController {
             List<GenTable> tableList = genTableService.selectDbTableListByNames(tableNames.toArray(new String[tableNames.size()]));
             String operName = SecurityUtils.getUsername();
             genTableService.importGenTable(tableList, tplWebType, operName);
-            return AjaxResult.success();
+            return R.ok();
         } catch (Exception e) {
             logger.error(e.getMessage(), e);
-            return AjaxResult.error("创建表结构异常");
+            return R.error("创建表结构异常");
         }
     }
 
@@ -158,7 +158,7 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasPermi('tool:gen:edit')")
     @Log(title = "代码生成", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult editSave(@Validated @RequestBody GenTable genTable) {
+    public R editSave(@Validated @RequestBody GenTable genTable) {
         genTableService.validateEdit(genTable);
         genTableService.updateGenTable(genTable);
         return success();
@@ -171,7 +171,7 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasPermi('tool:gen:remove')")
     @Log(title = "代码生成", businessType = BusinessType.DELETE)
     @DeleteMapping("/{tableIds}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "表ID") Long[] tableIds) {
+    public R remove(@PathVariable @Parameter(description = "表ID") Long[] tableIds) {
         genTableService.deleteGenTableByIds(tableIds);
         return success();
     }
@@ -182,7 +182,7 @@ public class GenController extends BaseController {
     @Operation(summary = "预览代码")
     @PreAuthorize("@ss.hasPermi('tool:gen:preview')")
     @GetMapping("/preview/{tableId}")
-    public AjaxResult preview(@PathVariable("tableId") @Parameter(description = "表ID") Long tableId) throws IOException {
+    public R preview(@PathVariable("tableId") @Parameter(description = "表ID") Long tableId) throws IOException {
         Map<String, String> dataMap = genTableService.previewCode(tableId);
         return success(dataMap);
     }
@@ -206,9 +206,9 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasPermi('tool:gen:code')")
     @Log(title = "代码生成", businessType = BusinessType.GENCODE)
     @GetMapping("/genCode/{tableName}")
-    public AjaxResult genCode(@PathVariable("tableName") @Parameter(description = "表名称") String tableName) {
+    public R genCode(@PathVariable("tableName") @Parameter(description = "表名称") String tableName) {
         if (!GenConfig.isAllowOverwrite()) {
-            return AjaxResult.error("【系统预设】不允许生成文件覆盖到本地");
+            return R.error("【系统预设】不允许生成文件覆盖到本地");
         }
         genTableService.generatorCode(tableName);
         return success();
@@ -221,7 +221,7 @@ public class GenController extends BaseController {
     @PreAuthorize("@ss.hasPermi('tool:gen:edit')")
     @Log(title = "代码生成", businessType = BusinessType.UPDATE)
     @GetMapping("/synchDb/{tableName}")
-    public AjaxResult synchDb(@PathVariable("tableName") @Parameter(description = "表名称") String tableName) {
+    public R synchDb(@PathVariable("tableName") @Parameter(description = "表名称") String tableName) {
         genTableService.synchDb(tableName);
         return success();
     }

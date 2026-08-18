@@ -1,7 +1,7 @@
 package com.yangchen.framework.interceptor;
 
 import com.yangchen.common.annotation.RepeatSubmit;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.utils.JsonUtils;
 import com.yangchen.common.utils.ServletUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,8 +27,8 @@ public abstract class RepeatSubmitInterceptor implements HandlerInterceptor {
             RepeatSubmit annotation = method.getAnnotation(RepeatSubmit.class);
             if (annotation != null) {
                 if (this.isRepeatSubmit(request, annotation)) {
-                    AjaxResult ajaxResult = AjaxResult.error(annotation.message());
-                    ServletUtils.renderString(response, JsonUtils.toJsonString(ajaxResult));
+                    R r = R.error(annotation.message());
+                    ServletUtils.renderString(response, JsonUtils.toJsonString(r));
                     return false;
                 }
             }

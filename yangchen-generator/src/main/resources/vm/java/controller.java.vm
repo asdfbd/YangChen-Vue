@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.enums.BusinessType;
 import ${packageName}.entity.${ClassName};
 import ${packageName}.service.${ClassName}Service;
@@ -54,7 +54,7 @@ public class ${ClassName}Controller extends BaseController {
         return getDataTable(list);
     }
     #elseif($table.tree)
-        public AjaxResult list(${ClassName} ${className}) {
+        public R list(${ClassName} ${className}) {
             List<${ClassName}> list = ${className}Service.select${ClassName}List(${className});
             return success(list);
         }
@@ -79,7 +79,7 @@ public class ${ClassName}Controller extends BaseController {
     @Operation(summary = "获取${functionName}详细信息")
     @PreAuthorize("@ss.hasPermi('${permissionPrefix}:query')")
     @GetMapping(value = "/{${pkColumn.javaField}}")
-    public AjaxResult getInfo(@PathVariable("${pkColumn.javaField}") @Parameter(description = "${functionName}主键") ${pkColumn.javaType} ${pkColumn.javaField}) {
+    public R getInfo(@PathVariable("${pkColumn.javaField}") @Parameter(description = "${functionName}主键") ${pkColumn.javaType} ${pkColumn.javaField}) {
         return success(${className}Service.select${ClassName}By${pkColumn.capJavaField}(${pkColumn.javaField}));
     }
 
@@ -90,7 +90,7 @@ public class ${ClassName}Controller extends BaseController {
     @PreAuthorize("@ss.hasPermi('${permissionPrefix}:add')")
     @Log(title = "${functionName}", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@RequestBody ${ClassName} ${className}) {
+    public R add(@RequestBody ${ClassName} ${className}) {
         return toAjax(${className}Service.insert${ClassName}(${className}));
     }
 
@@ -101,7 +101,7 @@ public class ${ClassName}Controller extends BaseController {
     @PreAuthorize("@ss.hasPermi('${permissionPrefix}:edit')")
     @Log(title = "${functionName}", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@RequestBody ${ClassName} ${className}) {
+    public R edit(@RequestBody ${ClassName} ${className}) {
         return toAjax(${className}Service.update${ClassName}(${className}));
     }
 
@@ -112,7 +112,7 @@ public class ${ClassName}Controller extends BaseController {
     @PreAuthorize("@ss.hasPermi('${permissionPrefix}:remove')")
     @Log(title = "${functionName}", businessType = BusinessType.DELETE)
     @DeleteMapping("/{${pkColumn.javaField}s}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "${functionName}主键集合") ${pkColumn.javaType}[] ${pkColumn.javaField}s) {
+    public R remove(@PathVariable @Parameter(description = "${functionName}主键集合") ${pkColumn.javaType}[] ${pkColumn.javaField}s) {
         return toAjax(${className}Service.delete${ClassName}By${pkColumn.capJavaField}s(${pkColumn.javaField}s));
     }
 }

@@ -4,7 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.config.YangChenConfig;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.LoginUser;
 import com.yangchen.common.core.entity.SysUser;
 import com.yangchen.common.enums.BusinessType;
@@ -44,10 +44,10 @@ public class SysProfileController extends BaseController {
      */
     @Operation(summary = "个人信息")
     @GetMapping
-    public AjaxResult profile() {
+    public R profile() {
         LoginUser loginUser = getLoginUser();
         SysUser user = loginUser.getUser();
-        AjaxResult ajax = AjaxResult.success(user);
+        R ajax = R.ok(user);
         ajax.put("roleGroup", userService.selectUserRoleGroup(loginUser.getUsername()));
         ajax.put("postGroup", userService.selectUserPostGroup(loginUser.getUsername()));
         return ajax;
@@ -59,7 +59,7 @@ public class SysProfileController extends BaseController {
     @Operation(summary = "修改用户")
     @Log(title = "个人信息", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult updateProfile(@RequestBody SysUser user) {
+    public R updateProfile(@RequestBody SysUser user) {
         LoginUser loginUser = getLoginUser();
         SysUser currentUser = loginUser.getUser();
         currentUser.setNickName(user.getNickName());
@@ -86,7 +86,7 @@ public class SysProfileController extends BaseController {
     @Operation(summary = "重置密码")
     @Log(title = "个人信息", businessType = BusinessType.UPDATE)
     @PutMapping("/updatePwd")
-    public AjaxResult updatePwd(@RequestBody Map<String, String> params) {
+    public R updatePwd(@RequestBody Map<String, String> params) {
         String oldPassword = params.get("oldPassword");
         String newPassword = params.get("newPassword");
         LoginUser loginUser = getLoginUser();
@@ -116,7 +116,7 @@ public class SysProfileController extends BaseController {
     @Operation(summary = "头像上传")
     @Log(title = "用户头像", businessType = BusinessType.UPDATE)
     @PostMapping("/avatar")
-    public AjaxResult avatar(@RequestParam("avatarfile") @Parameter(description = "头像文件") MultipartFile file) throws Exception {
+    public R avatar(@RequestParam("avatarfile") @Parameter(description = "头像文件") MultipartFile file) throws Exception {
         if (!file.isEmpty()) {
             LoginUser loginUser = getLoginUser();
             String avatar = FileUploadUtils.upload(YangChenConfig.getAvatarPath(), file, MimeTypeUtils.IMAGE_EXTENSION, true);
@@ -125,7 +125,7 @@ public class SysProfileController extends BaseController {
                 if (StrUtil.isNotEmpty(oldAvatar)) {
                     FileUtils.deleteFile(YangChenConfig.getProfile() + FileUtils.stripPrefix(oldAvatar));
                 }
-                AjaxResult ajax = AjaxResult.success();
+                R ajax = R.ok();
                 ajax.put("imgUrl", avatar);
                 // 更新缓存用户头像
                 loginUser.getUser().setAvatar(avatar);

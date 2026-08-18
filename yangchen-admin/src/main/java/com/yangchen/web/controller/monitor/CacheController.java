@@ -1,7 +1,7 @@
 package com.yangchen.web.controller.monitor;
 
 import com.yangchen.common.constant.CacheConstants;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.system.domain.SysCache;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -41,7 +41,7 @@ public class CacheController {
     @Operation(summary = "获取缓存监控信息")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @GetMapping()
-    public AjaxResult getInfo() throws Exception {
+    public R getInfo() throws Exception {
         Properties info = (Properties) redisTemplate.execute((RedisCallback<Object>) connection -> connection.info());
         Properties commandStats = (Properties) redisTemplate.execute((RedisCallback<Object>) connection -> connection.info("commandstats"));
         Object dbSize = redisTemplate.execute((RedisCallback<Object>) connection -> connection.dbSize());
@@ -59,57 +59,57 @@ public class CacheController {
             pieList.add(data);
         });
         result.put("commandStats", pieList);
-        return AjaxResult.success(result);
+        return R.ok(result);
     }
 
     @Operation(summary = "查询缓存名称列表")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @GetMapping("/getNames")
-    public AjaxResult cache() {
-        return AjaxResult.success(caches);
+    public R cache() {
+        return R.ok(caches);
     }
 
     @Operation(summary = "查询缓存键名列表")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @GetMapping("/getKeys/{cacheName}")
-    public AjaxResult getCacheKeys(@PathVariable @Parameter(description = "缓存名称") String cacheName) {
+    public R getCacheKeys(@PathVariable @Parameter(description = "缓存名称") String cacheName) {
         Set<String> cacheKeys = redisTemplate.keys(cacheName + "*");
-        return AjaxResult.success(new TreeSet<>(cacheKeys));
+        return R.ok(new TreeSet<>(cacheKeys));
     }
 
     @Operation(summary = "查询缓存键值")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @GetMapping("/getValue/{cacheName}/{cacheKey}")
-    public AjaxResult getCacheValue(@PathVariable @Parameter(description = "缓存名称") String cacheName,
-                                    @PathVariable @Parameter(description = "缓存键名") String cacheKey) {
+    public R getCacheValue(@PathVariable @Parameter(description = "缓存名称") String cacheName,
+                           @PathVariable @Parameter(description = "缓存键名") String cacheKey) {
         String cacheValue = redisTemplate.opsForValue().get(cacheKey);
         SysCache sysCache = new SysCache(cacheName, cacheKey, cacheValue);
-        return AjaxResult.success(sysCache);
+        return R.ok(sysCache);
     }
 
     @Operation(summary = "清理指定名称缓存")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @DeleteMapping("/clearCacheName/{cacheName}")
-    public AjaxResult clearCacheName(@PathVariable @Parameter(description = "缓存名称") String cacheName) {
+    public R clearCacheName(@PathVariable @Parameter(description = "缓存名称") String cacheName) {
         Collection<String> cacheKeys = redisTemplate.keys(cacheName + "*");
         redisTemplate.delete(cacheKeys);
-        return AjaxResult.success();
+        return R.ok();
     }
 
     @Operation(summary = "清理指定键名缓存")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @DeleteMapping("/clearCacheKey/{cacheKey}")
-    public AjaxResult clearCacheKey(@PathVariable @Parameter(description = "缓存键名") String cacheKey) {
+    public R clearCacheKey(@PathVariable @Parameter(description = "缓存键名") String cacheKey) {
         redisTemplate.delete(cacheKey);
-        return AjaxResult.success();
+        return R.ok();
     }
 
     @Operation(summary = "清理全部缓存")
     @PreAuthorize("@ss.hasPermi('monitor:cache:list')")
     @DeleteMapping("/clearCacheAll")
-    public AjaxResult clearCacheAll() {
+    public R clearCacheAll() {
         Collection<String> cacheKeys = redisTemplate.keys("*");
         redisTemplate.delete(cacheKeys);
-        return AjaxResult.success();
+        return R.ok();
     }
 }

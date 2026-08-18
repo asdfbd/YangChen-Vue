@@ -2,7 +2,7 @@ package com.yangchen.framework.security.handle;
 
 import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.constant.HttpStatus;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.utils.JsonUtils;
 import com.yangchen.common.utils.ServletUtils;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +28,6 @@ public class AuthenticationEntryPointImpl implements AuthenticationEntryPoint, S
             throws IOException {
         int code = HttpStatus.UNAUTHORIZED;
         String msg = StrUtil.format("请求访问：{}，认证失败，无法访问系统资源", request.getRequestURI());
-        ServletUtils.renderString(response, JsonUtils.toJsonString(AjaxResult.error(code, msg)));
+        ServletUtils.renderString(response, JsonUtils.toJsonString(R.error(code, msg)));
     }
 }

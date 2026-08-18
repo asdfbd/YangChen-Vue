@@ -2,7 +2,7 @@ package com.yangchen.web.controller.system;
 
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.core.text.Convert;
 import com.yangchen.common.enums.BusinessType;
@@ -52,7 +52,7 @@ public class SysNoticeController extends BaseController {
      */
     @Operation(summary = "根据通知公告编号获取详细信息")
     @GetMapping(value = "/{noticeId}")
-    public AjaxResult getInfo(@PathVariable @Parameter(description = "通知公告ID") Long noticeId) {
+    public R getInfo(@PathVariable @Parameter(description = "通知公告ID") Long noticeId) {
         return success(noticeService.selectNoticeById(noticeId));
     }
 
@@ -63,7 +63,7 @@ public class SysNoticeController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:notice:add')")
     @Log(title = "通知公告", businessType = BusinessType.INSERT)
     @PostMapping
-    public AjaxResult add(@Validated @RequestBody SysNotice notice) {
+    public R add(@Validated @RequestBody SysNotice notice) {
         notice.setCreateBy(getUsername());
         return toAjax(noticeService.insertNotice(notice));
     }
@@ -75,7 +75,7 @@ public class SysNoticeController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:notice:edit')")
     @Log(title = "通知公告", businessType = BusinessType.UPDATE)
     @PutMapping
-    public AjaxResult edit(@Validated @RequestBody SysNotice notice) {
+    public R edit(@Validated @RequestBody SysNotice notice) {
         notice.setUpdateBy(getUsername());
         return toAjax(noticeService.updateNotice(notice));
     }
@@ -86,11 +86,11 @@ public class SysNoticeController extends BaseController {
     @Operation(summary = "首页顶部公告列表")
     @GetMapping("/listTop")
     @ResponseBody
-    public AjaxResult listTop() {
+    public R listTop() {
         Long userId = getUserId();
         List<SysNotice> list = noticeReadService.selectNoticeListWithReadStatus(userId, 5);
         long unreadCount = list.stream().filter(n -> !n.getIsRead()).count();
-        AjaxResult result = AjaxResult.success(list);
+        R result = R.ok(list);
         result.put("unreadCount", unreadCount);
         return result;
     }
@@ -101,7 +101,7 @@ public class SysNoticeController extends BaseController {
     @Operation(summary = "标记公告已读")
     @PostMapping("/markRead")
     @ResponseBody
-    public AjaxResult markRead(Long noticeId) {
+    public R markRead(Long noticeId) {
         Long userId = getUserId();
         noticeReadService.markRead(noticeId, userId);
         return success();
@@ -113,7 +113,7 @@ public class SysNoticeController extends BaseController {
     @Operation(summary = "批量标记已读")
     @PostMapping("/markReadAll")
     @ResponseBody
-    public AjaxResult markReadAll(String ids) {
+    public R markReadAll(String ids) {
         Long userId = getUserId();
         Long[] noticeIds = Convert.toLongArray(ids);
         noticeReadService.markReadBatch(userId, noticeIds);
@@ -140,7 +140,7 @@ public class SysNoticeController extends BaseController {
     @PreAuthorize("@ss.hasPermi('system:notice:remove')")
     @Log(title = "通知公告", businessType = BusinessType.DELETE)
     @DeleteMapping("/{noticeIds}")
-    public AjaxResult remove(@PathVariable @Parameter(description = "通知公告ID") Long[] noticeIds) {
+    public R remove(@PathVariable @Parameter(description = "通知公告ID") Long[] noticeIds) {
         noticeReadService.deleteByNoticeIds(noticeIds);
         return toAjax(noticeService.deleteNoticeByIds(noticeIds));
     }

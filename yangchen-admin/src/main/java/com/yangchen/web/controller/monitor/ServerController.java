@@ -1,6 +1,6 @@
 package com.yangchen.web.controller.monitor;
 
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.framework.web.domain.Server;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,9 +21,9 @@ public class ServerController {
     @Operation(summary = "获取服务器信息")
     @PreAuthorize("@ss.hasPermi('monitor:server:list')")
     @GetMapping()
-    public AjaxResult getInfo() throws Exception {
+    public R getInfo() throws Exception {
         Server server = new Server();
         server.copyTo();
-        return AjaxResult.success(server);
+        return R.ok(server);
     }
 }

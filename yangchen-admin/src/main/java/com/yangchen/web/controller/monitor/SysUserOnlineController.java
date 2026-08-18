@@ -5,7 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.yangchen.common.annotation.Log;
 import com.yangchen.common.constant.CacheConstants;
 import com.yangchen.common.core.controller.BaseController;
-import com.yangchen.common.core.domain.AjaxResult;
+import com.yangchen.common.core.domain.R;
 import com.yangchen.common.core.domain.model.LoginUser;
 import com.yangchen.common.core.page.TableDataInfo;
 import com.yangchen.common.core.redis.RedisCache;
@@ -69,7 +69,7 @@ public class SysUserOnlineController extends BaseController {
     @PreAuthorize("@ss.hasPermi('monitor:online:forceLogout')")
     @Log(title = "在线用户", businessType = BusinessType.FORCE)
     @DeleteMapping("/{tokenId}")
-    public AjaxResult forceLogout(@PathVariable @Parameter(description = "会话ID") String tokenId) {
+    public R forceLogout(@PathVariable @Parameter(description = "会话ID") String tokenId) {
         redisCache.deleteObject(CacheConstants.LOGIN_TOKEN_KEY + tokenId);
         return success();
     }
