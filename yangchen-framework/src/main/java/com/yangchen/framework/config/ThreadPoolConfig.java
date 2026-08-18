@@ -5,6 +5,8 @@ import org.apache.commons.lang3.concurrent.BasicThreadFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -16,7 +18,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  * @author yangchen
  **/
 @Configuration
-public class ThreadPoolConfig {
+public class ThreadPoolConfig implements WebMvcConfigurer {
     // 核心线程池大小
     private int corePoolSize = 50;
 
@@ -39,6 +41,15 @@ public class ThreadPoolConfig {
         // 线程池对拒绝任务(无线程可用)的处理策略
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         return executor;
+    }
+
+    /**
+     * 为 Spring MVC 的异步请求（例如 Controller 返回 Flux）配置业务线程池，
+     * 避免使用默认的 SimpleAsyncTaskExecutor。
+     */
+    @Override
+    public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
+        configurer.setTaskExecutor(threadPoolTaskExecutor());
     }
 
     /**

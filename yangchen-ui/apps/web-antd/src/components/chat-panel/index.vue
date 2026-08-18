@@ -1,12 +1,13 @@
 <script lang="ts" setup>
-import {computed, nextTick, onMounted, ref, watch} from 'vue';
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue';
 
 import {IconifyIcon} from '@vben/icons';
 
-import ChatMessageText from './message-text.vue';
+import ChatComposer from './composer.vue';
+import ChatMessageList from './message-list.vue';
 import {genId, nowTime} from './utils';
 
-import type {ChatMessage, ChatRendererMap, ChatSendHandler} from './types';
+import type {ChatMessage, ChatRendererMap, ChatSendHandler, ChatStreamHandle} from './types';
 
 defineOptions({name: 'ChatPanel'});
 
@@ -16,9 +17,17 @@ defineOptions({name: 'ChatPanel'});
  * 设计为"受控组件"：消息通过 v-model 由调用方持有，
  * 数据层（发送/流式/持久化）全部由调用方注入，本组件只负责界面与交互。
  *
+ * 两种形态：
+ * - variant="panel"：紧凑面板（悬浮助手小窗等），气泡式消息
+ * - variant="page"：全页对话（类似 DeepSeek / ChatGPT），
+ *   开场为居中欢迎页（Logo + 标题 + 大输入框 + 提问卡片），
+ *   对话后为通栏流式消息 + 底部大输入区
+ *
  * 扩展点：
- * - `send` 发送处理器：返回字符串则自动追加助手回复；返回 void 则由调用方自行推送（流式）
- * - `busy` 外部忙碌状态：控制"正在输入"指示与输入禁用（流式进行中传 true）
+ * - `send` 发送处理器：返回字符串则自动追加助手回复；调用 onChunk 推送增量（实时 Markdown 渲染）；
+ *   第三个参数 signal 用于响应「停止生成」，见 types.ts
+ * - `busy` 外部忙碌状态：控制"正在输入"指示与输入禁用（调用方自行驱动流式时传 true）
+ * - 生成期间发送键自动变为停止键，点击触发 stop 事件，并向 send 传入的 signal 发出中止
  * - `renderers` 消息渲染器注册表：按 message.type 分发到自定义组件（props: {message}）
  * - `#header-actions` 插槽：自定义头部右侧操作区
  * - `closable` / `newChatable` / `showHeader`：按需裁剪部件
@@ -33,13 +42,15 @@ const props = withDefaults(
     badge?: string;
     /** 副标题（状态行） */
     subtitle?: string;
+    /** 欢迎语（page 形态开场展示，缺省用 subtitle） */
+    description?: string;
     /** 助手头像图标（iconify 名称） */
     avatarIcon?: string;
     /** 输入框占位文案 */
     placeholder?: string;
     /** 底部说明文案 */
     hint?: string;
-    /** 快捷提问（消息数 <= 1 时展示） */
+    /** 快捷提问（对话刚开始时展示） */
     suggestions?: string[];
     /** 发送处理器（见 types.ts） */
     send?: ChatSendHandler;
@@ -57,11 +68,14 @@ const props = withDefaults(
     closable?: boolean;
     /** 挂载后自动聚焦输入框 */
     autofocus?: boolean;
+    /** 形态：panel（紧凑面板）/ page（全页对话） */
+    variant?: 'panel' | 'page';
   }>(),
   {
     title: '小辰',
     badge: 'AI',
     subtitle: '在线 · 随时待命',
+    description: '',
     avatarIcon: 'lucide:sparkles',
     placeholder: '输入你的问题，Enter 发送，Shift + Enter 换行',
     hint: '',
@@ -73,6 +87,7 @@ const props = withDefaults(
     newChatable: true,
     closable: true,
     autofocus: false,
+    variant: 'panel',
   },
 );
 
@@ -84,36 +99,53 @@ const emit = defineEmits<{
   'new-chat': [];
   /** 点击"收起/关闭" */
   close: [];
+  /** 点击"停止生成" / 流式被中止 */
+  stop: [];
 }>();
 
 const messages = computed(() => props.modelValue);
 
-const draft = ref('');
 /** 内部等待 send 返回的 Promise */
 const pending = ref(false);
 const listRef = ref<HTMLElement>();
-const textareaRef = ref<HTMLElement>();
+const composerRef = ref<InstanceType<typeof ChatComposer>>();
+
+/** 一次提交对应的流式会话状态（仅在提交期间非空） */
+interface StreamSession {
+  signal: ChatStreamHandle;
+  baseMessages: ChatMessage[];
+  assistantId: string;
+  streamed: boolean;
+  streamedContent: string;
+  buffer: string;
+  scheduled: boolean;
+}
+
+let streamSession: StreamSession | null = null;
+/** 当前在途请求的中止句柄（stop / 卸载时使用，宿主也可主动 abort） */
+const activeSignal = ref<ChatStreamHandle | null>(null);
+/** 正在流式输出的助手消息 id（光标指示 + 隐藏打字点） */
+const streamingId = ref<string | null>(null);
+/** 用户是否停留在消息底部（流式期间仅在底部时自动滚动） */
+const stickToBottom = ref(true);
 
 const isBusy = computed(() => props.busy || pending.value);
 
-const canSend = computed(() => draft.value.trim().length > 0 && !isBusy.value);
+const isPage = computed(() => props.variant === 'page');
 
-/** 仅当对话刚开始（只有问候语）时展示快捷提问 */
-const showSuggestions = computed(
+/** page 形态：对话为空时展示欢迎页 */
+const showHero = computed(
+  () => isPage.value && messages.value.length === 0 && !isBusy.value,
+);
+
+/** panel 形态：对话刚开始（只有问候语）时展示快捷提问卡片 */
+const showStarter = computed(
   () =>
+    !isPage.value &&
     props.suggestions.length > 0 &&
     !isBusy.value &&
     messages.value.length <= 1,
 );
-
-/** 自定义渲染器是否命中该消息类型 */
-function hasRenderer(msg: ChatMessage): boolean {
-  return Boolean(msg.type && props.renderers[msg.type]);
-}
-
-function rendererFor(msg: ChatMessage) {
-  return (msg.type && props.renderers[msg.type]) || ChatMessageText;
-}
 
 function pushMessage(
   role: ChatMessage['role'],
@@ -127,7 +159,15 @@ function pushMessage(
   emit('update:modelValue', [...props.modelValue, msg]);
 }
 
+/** 用户滚动时记录是否停留在底部（距底 < 120px 视为吸底） */
+function onThreadScroll() {
+  const el = listRef.value;
+  if (!el) return;
+  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+}
+
 function scrollToBottom() {
+  if (!stickToBottom.value) return;
   nextTick(() => {
     const el = listRef.value;
     if (el) el.scrollTop = el.scrollHeight;
@@ -140,213 +180,410 @@ watch(
   {deep: true},
 );
 
-async function submit(text?: string) {
-  const content = (text ?? draft.value).trim();
+// 列表末尾消息变化（新增消息 / 切换会话）时恢复吸底，便于流式连续滚动
+let lastTailId = '';
+watch(
+  () => props.modelValue[props.modelValue.length - 1]?.id,
+  (id) => {
+    if (id && id !== lastTailId) {
+      lastTailId = id;
+      stickToBottom.value = true;
+    }
+  },
+);
+
+/** 把缓冲中的增量一次性写入消息流（合并渲染，避免每块都触发整段 Markdown 重绘） */
+function flushStreamChunks() {
+  const session = streamSession;
+  if (!session) return;
+  session.scheduled = false;
+  if (!session.buffer) return;
+  session.streamed = true;
+  session.streamedContent += session.buffer;
+  session.buffer = '';
+  streamingId.value = session.assistantId;
+  emit('update:modelValue', [
+    ...session.baseMessages,
+    {
+      id: session.assistantId,
+      role: 'assistant',
+      content: session.streamedContent,
+      time: nowTime(),
+    },
+  ]);
+  scrollToBottom();
+}
+
+function scheduleFlush() {
+  const session = streamSession;
+  if (!session || session.scheduled) return;
+  session.scheduled = true;
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => flushStreamChunks());
+  } else {
+    flushStreamChunks();
+  }
+}
+
+function finishStream() {
+  const session = streamSession;
+  if (session) {
+    if (!session.signal.aborted) {
+      flushStreamChunks();
+    }
+    // 已中止时不落盘残余缓冲（≤1 帧），避免增量写入已切换的会话
+    session.buffer = '';
+  }
+  streamSession = null;
+  streamingId.value = null;
+  pending.value = false;
+}
+
+/** 停止生成：先落盘未刷新增量，再向宿主 signal 发出中止 */
+function stopGenerating() {
+  if (!streamSession && !isBusy.value) return;
+  const signal = activeSignal.value ?? streamSession?.signal;
+  flushStreamChunks();
+  if (signal) {
+    signal.abort();
+  }
+  streamingId.value = null;
+  pending.value = false;
+  streamSession = null;
+  activeSignal.value = null;
+  emit('stop');
+}
+
+async function submit(text: string) {
+  const content = text.trim();
   if (!content || isBusy.value) return;
-  draft.value = '';
-  resetTextarea();
-  pushMessage('user', content);
+  const userMessage: ChatMessage = {
+    id: genId(),
+    role: 'user',
+    content,
+    time: nowTime(),
+  };
+  const baseMessages = [...props.modelValue, userMessage];
+  emit('update:modelValue', baseMessages);
   emit('send-start', content);
 
   const handler = props.send;
   if (!handler) return;
-  const result = handler(content);
+
+  // 本次提交的流式中止句柄：停止按钮 / 组件卸载 / 宿主主动取消共用
+  let aborted = false;
+  const abortListeners: Array<() => void> = [];
+  const signal: ChatStreamHandle = {
+    get aborted() {
+      return aborted;
+    },
+    onAbort(callback: () => void) {
+      if (aborted) {
+        callback();
+      } else {
+        abortListeners.push(callback);
+      }
+    },
+    abort() {
+      if (aborted) return;
+      aborted = true;
+      abortListeners.splice(0).forEach((callback) => callback());
+    },
+  };
+
+  const assistantId = genId();
+  streamSession = {
+    signal,
+    baseMessages,
+    assistantId,
+    streamed: false,
+    streamedContent: '',
+    buffer: '',
+    scheduled: false,
+  };
+  activeSignal.value = signal;
+  stickToBottom.value = true;
+
+  const onChunk = (chunk: string) => {
+    if (!chunk || !streamSession || streamSession.assistantId !== assistantId) {
+      return;
+    }
+    streamSession.streamed = true;
+    streamSession.buffer += chunk;
+    scheduleFlush();
+  };
+
+  const result = handler(content, onChunk, signal);
   if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
     pending.value = true;
     try {
       const reply = await result;
-      if (typeof reply === 'string' && reply) {
+      if (typeof reply === 'string' && reply && !aborted && !streamSession?.streamed) {
         pushMessage('assistant', reply);
       }
     } finally {
-      pending.value = false;
+      finishStream();
+      activeSignal.value = null;
     }
+  } else {
+    // 同步 handler：调用方自行管理 busy，仅收尾本次流式资源
+    finishStream();
+    activeSignal.value = null;
   }
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  // 中文输入法组词中不触发发送
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-    e.preventDefault();
-    submit();
-  }
-}
-
-function autosize(e: Event) {
-  const el = e.target as HTMLTextAreaElement;
-  el.style.height = 'auto';
-  el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-}
-
-function resetTextarea() {
-  nextTick(() => {
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto';
-    }
-  });
+function focusComposer() {
+  nextTick(() => composerRef.value?.focus());
 }
 
 onMounted(() => {
   if (props.autofocus) {
-    nextTick(() => textareaRef.value?.focus());
+    focusComposer();
+  }
+});
+
+onBeforeUnmount(() => {
+  // 面板销毁时中止在途生成，保留已生成的部分
+  stopGenerating();
+});
+
+// 新对话回到欢迎页时聚焦输入框
+watch(showHero, (val) => {
+  if (val) {
+    focusComposer();
   }
 });
 </script>
 
 <template>
-  <div class="chat-panel">
-    <!-- 头部 -->
-    <header v-if="showHeader" class="cp-head">
-      <div class="cp-head__brand">
-        <span class="cp-orb">
-          <IconifyIcon :icon="avatarIcon"/>
-        </span>
-        <div class="cp-head__text">
-          <div class="cp-head__title">
-            {{ title }}<em v-if="badge">{{ badge }}</em>
-          </div>
-          <div class="cp-head__status">
-            <i class="cp-status-dot"></i>
-            {{ subtitle }}
-          </div>
-        </div>
-      </div>
-      <div class="cp-head__actions">
-        <slot name="header-actions">
-          <button
-            v-if="newChatable"
-            class="cp-icon-btn"
-            title="新对话"
-            aria-label="新对话"
-            @click="emit('new-chat')"
-          >
-            <IconifyIcon icon="lucide:rotate-ccw"/>
-          </button>
-          <button
-            v-if="closable"
-            class="cp-icon-btn"
-            title="收起"
-            aria-label="收起面板"
-            @click="emit('close')"
-          >
-            <IconifyIcon icon="lucide:chevron-down"/>
-          </button>
-        </slot>
-      </div>
-    </header>
-
-    <!-- 消息区 -->
-    <div ref="listRef" class="cp-body">
-      <TransitionGroup name="cp-msg">
-        <div
-          v-for="msg in messages"
-          :key="msg.id"
-          :class="['cp-msg', `cp-msg--${msg.role}`, {'is-card': hasRenderer(msg)}]"
-        >
-          <template v-if="msg.role === 'assistant'">
-            <span class="cp-avatar">
+  <div :class="['chat-panel', `chat-panel--${variant}`]">
+    <!-- ============ 全页对话形态（DeepSeek / GPT 式） ============ -->
+    <template v-if="isPage">
+      <header v-if="showHeader" class="cp-head cp-head--page">
+        <div class="cp-head__inner">
+          <div class="cp-head__brand">
+            <span class="cp-orb">
               <IconifyIcon :icon="avatarIcon"/>
             </span>
-            <div :class="['cp-bubble', {'cp-bubble--wide': hasRenderer(msg)}]">
-              <component :is="rendererFor(msg)" :message="msg"/>
-              <span class="cp-bubble__time">{{ msg.time }}</span>
+            <div class="cp-head__text">
+              <div class="cp-head__title">
+                {{ title }}<em v-if="badge">{{ badge }}</em>
+              </div>
+              <div class="cp-head__status">
+                <i class="cp-status-dot"></i>
+                {{ subtitle }}
+              </div>
             </div>
-          </template>
-          <template v-else>
-            <div class="cp-bubble">
-              <div class="cp-bubble__text">{{ msg.content }}</div>
-              <span class="cp-bubble__time">{{ msg.time }}</span>
-            </div>
-            <span class="cp-avatar cp-avatar--user">
-              <IconifyIcon icon="lucide:user"/>
-            </span>
-          </template>
-        </div>
-      </TransitionGroup>
-
-      <!-- 正在输入 -->
-      <Transition name="cp-msg">
-        <div v-if="isBusy" class="cp-msg cp-msg--assistant">
-          <span class="cp-avatar">
-            <IconifyIcon :icon="avatarIcon"/>
-          </span>
-          <div class="cp-bubble cp-bubble--typing">
-            <span class="cp-typing-dot"></span>
-            <span class="cp-typing-dot"></span>
-            <span class="cp-typing-dot"></span>
+          </div>
+          <div class="cp-head__actions">
+            <slot name="header-actions">
+              <button
+                v-if="newChatable"
+                class="cp-icon-btn"
+                title="新对话"
+                aria-label="新对话"
+                @click="emit('new-chat')"
+              >
+                <IconifyIcon icon="lucide:rotate-ccw"/>
+              </button>
+              <button
+                v-if="closable"
+                class="cp-icon-btn"
+                title="收起"
+                aria-label="收起面板"
+                @click="emit('close')"
+              >
+                <IconifyIcon icon="lucide:chevron-down"/>
+              </button>
+            </slot>
           </div>
         </div>
-      </Transition>
-    </div>
+      </header>
 
-    <!-- 底部输入 -->
-    <footer class="cp-foot">
-      <Transition name="cp-chips">
-        <div v-if="showSuggestions" class="cp-chips">
-          <button
-            v-for="q in suggestions"
-            :key="q"
-            class="cp-chip"
-            @click="submit(q)"
-          >
-            <IconifyIcon icon="lucide:sparkle" class="cp-chip__icon"/>
-            {{ q }}
-          </button>
+      <div class="cp-stage">
+        <!-- 欢迎页 -->
+        <div v-if="showHero" class="cp-hero">
+          <div class="cp-hero__logo">
+            <IconifyIcon :icon="avatarIcon"/>
+          </div>
+          <h1 class="cp-hero__title">
+            {{ title }}<em v-if="badge">{{ badge }}</em>
+          </h1>
+          <p class="cp-hero__desc">{{ description || subtitle }}</p>
+          <div class="cp-hero__composer">
+            <ChatComposer
+              ref="composerRef"
+              :placeholder="placeholder"
+              :max-length="maxLength"
+              :disabled="isBusy"
+              :busy="isBusy"
+              @stop="stopGenerating"
+              @submit="submit"
+            />
+          </div>
+          <div v-if="suggestions.length" class="cp-hero__suggestions">
+            <button
+              v-for="q in suggestions"
+              :key="q"
+              class="cp-sug"
+              @click="submit(q)"
+            >
+              <IconifyIcon icon="lucide:sparkle" class="cp-sug__icon"/>
+              <span class="cp-sug__text">{{ q }}</span>
+              <IconifyIcon icon="lucide:arrow-up-right" class="cp-sug__arrow"/>
+            </button>
+          </div>
+          <div v-if="hint" class="cp-hint">
+            <IconifyIcon icon="lucide:info" class="cp-hint__icon"/>
+            {{ hint }}
+          </div>
         </div>
-      </Transition>
 
-      <div class="cp-inputbar">
-        <textarea
-          ref="textareaRef"
-          v-model="draft"
-          class="cp-textarea"
-          rows="1"
-          :maxlength="maxLength"
+        <!-- 对话区 -->
+        <div v-else class="cp-page-thread">
+          <div ref="listRef" class="cp-thread" @scroll.passive="onThreadScroll">
+            <ChatMessageList
+              :messages="messages"
+              :busy="isBusy && !streamingId"
+              :streaming-id="streamingId"
+              :avatar-icon="avatarIcon"
+              :renderers="renderers"
+              variant="page"
+            />
+          </div>
+          <div class="cp-dock">
+            <div class="cp-dock__inner">
+              <ChatComposer
+                ref="composerRef"
+                :placeholder="placeholder"
+                :max-length="maxLength"
+                :disabled="isBusy"
+                :busy="isBusy"
+                @stop="stopGenerating"
+                @submit="submit"
+              />
+              <div v-if="hint" class="cp-hint">
+                <IconifyIcon icon="lucide:info" class="cp-hint__icon"/>
+                {{ hint }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- ============ 紧凑面板形态（悬浮小窗等） ============ -->
+    <template v-else>
+      <header v-if="showHeader" class="cp-head">
+        <div class="cp-head__brand">
+          <span class="cp-orb">
+            <IconifyIcon :icon="avatarIcon"/>
+          </span>
+          <div class="cp-head__text">
+            <div class="cp-head__title">
+              {{ title }}<em v-if="badge">{{ badge }}</em>
+            </div>
+            <div class="cp-head__status">
+              <i class="cp-status-dot"></i>
+              {{ subtitle }}
+            </div>
+          </div>
+        </div>
+        <div class="cp-head__actions">
+          <slot name="header-actions">
+            <button
+              v-if="newChatable"
+              class="cp-icon-btn"
+              title="新对话"
+              aria-label="新对话"
+              @click="emit('new-chat')"
+            >
+              <IconifyIcon icon="lucide:rotate-ccw"/>
+            </button>
+            <button
+              v-if="closable"
+              class="cp-icon-btn"
+              title="收起"
+              aria-label="收起面板"
+              @click="emit('close')"
+            >
+              <IconifyIcon icon="lucide:chevron-down"/>
+            </button>
+          </slot>
+        </div>
+      </header>
+
+      <div ref="listRef" class="cp-body" @scroll.passive="onThreadScroll">
+        <ChatMessageList
+          :messages="messages"
+          :busy="isBusy && !streamingId"
+          :streaming-id="streamingId"
+          :avatar-icon="avatarIcon"
+          :renderers="renderers"
+          variant="panel"
+        />
+
+        <!-- 开场引导：对话刚开始时展示快捷提问卡片 -->
+        <Transition name="cp-starter">
+          <div v-if="showStarter" class="cp-starter">
+            <div class="cp-starter__hint">你可以这样问我：</div>
+            <div class="cp-starter__grid">
+              <button
+                v-for="q in suggestions"
+                :key="q"
+                class="cp-starter__item"
+                @click="submit(q)"
+              >
+                <IconifyIcon icon="lucide:sparkle" class="cp-starter__icon"/>
+                <span class="cp-starter__text">{{ q }}</span>
+                <IconifyIcon
+                  icon="lucide:arrow-up-right"
+                  class="cp-starter__arrow"
+                />
+              </button>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
+      <footer class="cp-foot">
+        <ChatComposer
+          ref="composerRef"
           :placeholder="placeholder"
-          aria-label="输入问题"
-          @input="autosize"
-          @keydown="handleKeydown"
-        ></textarea>
-        <button
-          class="cp-send"
-          :disabled="!canSend"
-          aria-label="发送"
-          @click="submit()"
-        >
-          <IconifyIcon icon="lucide:send"/>
-        </button>
-      </div>
-
-      <div v-if="hint" class="cp-hint">
-        <IconifyIcon icon="lucide:info" class="cp-hint__icon"/>
-        {{ hint }}
-      </div>
-    </footer>
+          :max-length="maxLength"
+          :disabled="isBusy"
+          :busy="isBusy"
+          @stop="stopGenerating"
+          @submit="submit"
+        />
+        <div v-if="hint" class="cp-hint">
+          <IconifyIcon icon="lucide:info" class="cp-hint__icon"/>
+          {{ hint }}
+        </div>
+      </footer>
+    </template>
   </div>
 </template>
 
 <style scoped>
 /* ============================================================
    主题 token：全部消费项目全局 CSS 变量，随系统主题自动适配
+   组件根节点透明，背景由宿主（悬浮壳 / 页面容器）提供
    ============================================================ */
 .chat-panel {
-  --cp-bg: hsl(var(--card));
   --cp-text: hsl(var(--foreground));
   --cp-sub: hsl(var(--muted-foreground));
   --cp-line: hsl(var(--border));
-  --cp-surface: hsl(var(--muted));
+  --cp-card: hsl(var(--card));
   --cp-primary: hsl(var(--primary));
   --cp-primary-soft: hsl(var(--primary) / 0.08);
-  --cp-chip-bg: hsl(var(--primary) / 0.06);
-  --cp-chip-border: hsl(var(--primary) / 0.3);
-  --cp-code-inline-bg: hsl(var(--primary) / 0.12);
-  --cp-code-inline-text: hsl(var(--primary));
+  --cp-primary-border: hsl(var(--primary) / 0.32);
   --cp-success: hsl(var(--success));
   --cp-gradient: linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.16),
-      transparent 40%,
-      rgba(0, 0, 0, 0.18)
+      rgba(255, 255, 255, 0.18),
+      transparent 42%,
+      rgba(0, 0, 0, 0.16)
     ),
     hsl(var(--primary));
 
@@ -355,25 +592,41 @@ onMounted(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--cp-bg);
 }
 
 /* ============================================================
-   头部
+   头部（两种形态共用）
    ============================================================ */
 .cp-head {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 12px 12px 16px;
-  border-bottom: 1px solid var(--cp-line);
+  padding: 14px 18px 13px;
+}
+
+.cp-head--page {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  justify-content: center;
+  padding: 18px 24px 10px;
+  border-bottom: 1px solid hsl(var(--border) / 0.55);
+  background: hsl(var(--card) / 0.36);
+}
+
+.cp-head__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 960px;
 }
 
 .cp-head__brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
 }
 
 .cp-orb {
@@ -384,14 +637,15 @@ onMounted(() => {
   width: 36px;
   height: 36px;
   color: hsl(var(--primary-foreground));
-  border-radius: 50%;
-  background: var(--cp-gradient);
-  box-shadow: 0 4px 10px -2px hsl(var(--primary) / 0.5);
+  border: 1px solid hsl(var(--primary) / 0.18);
+  border-radius: 11px;
+  background: hsl(var(--primary) / 0.1);
+  box-shadow: none;
 }
 
 .cp-orb :deep(svg) {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
 }
 
 .cp-head__title {
@@ -403,21 +657,21 @@ onMounted(() => {
 }
 
 .cp-head__title em {
-  margin-left: 5px;
-  padding: 0 5px;
+  margin-left: 6px;
+  padding: 0 6px;
   font-size: 10px;
   font-style: normal;
   font-weight: 600;
   vertical-align: 2px;
   color: var(--cp-primary);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--cp-primary-soft);
 }
 
 .cp-head__status {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   margin-top: 2px;
   font-size: 11px;
   color: var(--cp-sub);
@@ -428,7 +682,7 @@ onMounted(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--cp-success);
-  box-shadow: 0 0 0 3px hsl(var(--success) / 0.2);
+  box-shadow: 0 0 0 3px hsl(var(--success) / 0.18);
 }
 
 .cp-head__actions {
@@ -440,12 +694,12 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   color: var(--cp-sub);
   border: none;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   cursor: pointer;
   transition:
@@ -455,7 +709,7 @@ onMounted(() => {
 
 .cp-icon-btn:hover {
   color: var(--cp-text);
-  background: var(--cp-surface);
+  background: hsl(var(--muted));
 }
 
 .cp-icon-btn :deep(svg) {
@@ -464,17 +718,212 @@ onMounted(() => {
 }
 
 /* ============================================================
-   消息区
+   page 形态：舞台 / 欢迎页 / 对话区
+   ============================================================ */
+.cp-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 欢迎页 */
+.cp-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px 56px;
+}
+
+.cp-hero__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.18);
+  border-radius: 22px;
+  background: linear-gradient(145deg, hsl(var(--card)), hsl(var(--primary) / 0.1));
+  box-shadow: 0 18px 40px -24px hsl(var(--primary) / 0.5);
+}
+
+.cp-hero__logo :deep(svg) {
+  width: 30px;
+  height: 30px;
+}
+
+.cp-hero__title {
+  margin-top: 20px;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--cp-text);
+  letter-spacing: 0.2px;
+}
+
+.cp-hero__title em {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  vertical-align: 4px;
+  color: var(--cp-primary);
+  border-radius: 7px;
+  background: var(--cp-primary-soft);
+}
+
+.cp-hero__desc {
+  max-width: 560px;
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  text-align: center;
+  color: var(--cp-sub);
+}
+
+.cp-hero__composer {
+  width: 100%;
+  max-width: 760px;
+  margin-top: 28px;
+}
+
+.cp-hero__suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-width: 760px;
+  margin-top: 14px;
+}
+
+.cp-sug {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 13px 16px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--cp-text);
+  border: 1px solid var(--cp-line);
+  border-radius: 12px;
+  background: hsl(var(--card) / 0.82);
+  cursor: pointer;
+  transition:
+    border-color 0.18s,
+    transform 0.18s,
+    box-shadow 0.18s,
+    background 0.18s;
+}
+
+.cp-sug:hover {
+  border-color: var(--cp-primary-border);
+  background: var(--cp-card);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -12px hsl(var(--primary) / 0.35);
+}
+
+.cp-sug:focus-visible,
+.cp-icon-btn:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.65);
+  outline-offset: 2px;
+}
+
+.cp-sug__icon {
+  flex-shrink: 0;
+  color: var(--cp-primary);
+}
+
+.cp-sug__icon :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+
+.cp-sug__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cp-sug__arrow {
+  flex-shrink: 0;
+  opacity: 0.35;
+}
+
+.cp-sug__arrow :deep(svg) {
+  width: 15px;
+  height: 15px;
+}
+
+/* 对话区 */
+.cp-page-thread {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cp-thread {
+  flex: 1;
+  padding: 20px 24px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(107, 114, 128, 0.28) transparent;
+}
+
+.cp-thread::-webkit-scrollbar {
+  width: 5px;
+}
+
+.cp-thread::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: rgba(107, 114, 128, 0.28);
+}
+
+.cp-thread :deep(.cml-list) {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.cp-dock {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  padding: 4px 24px 2px;
+}
+
+.cp-dock__inner {
+  width: 100%;
+  max-width: 960px;
+}
+
+/* page 形态：大输入框（通过 --cc-* 变量放大 Composer） */
+.chat-panel--page :deep(.cc-composer) {
+  --cc-pad: 16px 16px 16px 20px;
+  --cc-radius: 16px;
+  --cc-font: 16px;
+  --cc-send: 44px;
+  box-shadow:
+    0 18px 42px -26px hsl(var(--primary) / 0.42),
+    0 4px 10px -4px rgba(15, 23, 42, 0.08);
+}
+
+/* ============================================================
+   panel 形态：消息区 + 底部
    ============================================================ */
 .cp-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px 16px 8px;
+  gap: 18px;
+  padding: 16px 18px 10px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(107, 114, 128, 0.3) transparent;
+  scrollbar-color: rgba(107, 114, 128, 0.28) transparent;
 }
 
 .cp-body::-webkit-scrollbar {
@@ -483,249 +932,92 @@ onMounted(() => {
 
 .cp-body::-webkit-scrollbar-thumb {
   border-radius: 99px;
-  background: rgba(107, 114, 128, 0.3);
+  background: rgba(107, 114, 128, 0.28);
 }
 
-.cp-msg {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.cp-msg--user {
-  flex-direction: row-reverse;
-}
-
-.cp-avatar {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-}
-
-.cp-msg--assistant > .cp-avatar {
-  color: hsl(var(--primary-foreground));
-  background: var(--cp-gradient);
-  box-shadow: 0 3px 8px -2px hsl(var(--primary) / 0.45);
-}
-
-.cp-msg--user > .cp-avatar {
-  color: var(--cp-sub);
-  border: 1px solid var(--cp-line);
-  background: var(--cp-surface);
-}
-
-.cp-avatar :deep(svg) {
-  width: 13px;
-  height: 13px;
-}
-
-.cp-bubble {
-  position: relative;
-  max-width: 78%;
-  padding: 9px 12px;
-  font-size: 13.5px;
-  line-height: 1.75;
-  word-break: break-word;
-}
-
-.cp-msg--assistant .cp-bubble {
-  color: var(--cp-text);
-  border: 1px solid var(--cp-line);
-  border-radius: 4px 14px 14px 14px;
-  background: var(--cp-surface);
-}
-
-.cp-msg--user .cp-bubble {
-  color: hsl(var(--primary-foreground));
-  border-radius: 14px 4px 14px 14px;
-  background: var(--cp-gradient);
-  box-shadow: 0 5px 14px -5px hsl(var(--primary) / 0.5);
-}
-
-/* 自定义渲染器消息：放宽宽度，便于业务卡片展示 */
-.cp-msg--assistant .cp-bubble--wide {
-  max-width: 96%;
-}
-
-.cp-bubble__text {
-  font-size: inherit;
-  line-height: inherit;
-}
-
-.cp-msg--user .cp-bubble__text :deep(strong) {
-  color: hsl(var(--primary-foreground));
-}
-
-.cp-bubble__time {
-  display: block;
-  margin-top: 3px;
-  font-size: 10px;
-  opacity: 0.5;
-}
-
-/* 正在输入 */
-.cp-bubble--typing {
-  display: flex;
-  gap: 5px;
-  padding: 13px 15px;
-}
-
-.cp-typing-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cp-primary);
-  animation: cp-blink 1.1s infinite ease-in-out;
-}
-
-.cp-typing-dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.cp-typing-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes cp-blink {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-3px);
-  }
-}
-
-/* ============================================================
-   底部输入
-   ============================================================ */
 .cp-foot {
   flex-shrink: 0;
-  padding: 10px 14px 12px;
-  border-top: 1px solid var(--cp-line);
+  padding: 10px 18px 18px;
 }
 
-.cp-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* panel 形态开场引导 */
+.cp-starter {
+  margin-top: 2px;
+}
+
+.cp-starter__hint {
   margin-bottom: 10px;
+  padding-left: 2px;
+  font-size: 12px;
+  color: var(--cp-sub);
 }
 
-.cp-chip {
-  display: inline-flex;
+.cp-starter__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cp-starter__item {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 12px;
-  font-size: 12px;
-  color: var(--cp-primary);
-  border: 1px solid var(--cp-chip-border);
-  border-radius: 999px;
-  background: var(--cp-chip-bg);
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--cp-text);
+  border: 1px solid var(--cp-line);
+  border-radius: 14px;
+  background: var(--cp-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   cursor: pointer;
   transition:
-    background 0.18s,
+    border-color 0.18s,
     transform 0.18s,
     box-shadow 0.18s;
 }
 
-.cp-chip:hover {
-  background: hsl(var(--primary) / 0.14);
+.cp-starter__item:hover {
+  border-color: var(--cp-primary-border);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px -4px hsl(var(--primary) / 0.4);
+  box-shadow: 0 10px 22px -10px hsl(var(--primary) / 0.3);
 }
 
-.cp-chip__icon {
-  width: 12px;
-  height: 12px;
-}
-
-.cp-inputbar {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 6px 6px 6px 12px;
-  border: 1px solid var(--cp-line);
-  border-radius: 12px;
-  background: var(--cp-surface);
-  transition:
-    border-color 0.2s,
-    box-shadow 0.2s;
-}
-
-.cp-inputbar:focus-within {
-  border-color: hsl(var(--primary) / 0.55);
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
-}
-
-.cp-textarea {
-  flex: 1;
-  max-height: 120px;
-  padding: 5px 0;
-  font-family: inherit;
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--cp-text);
-  resize: none;
-  border: none;
-  outline: none;
-  background: transparent;
-}
-
-.cp-textarea::placeholder {
-  color: var(--cp-sub);
-}
-
-.cp-send {
-  display: inline-flex;
+.cp-starter__icon {
   flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  color: hsl(var(--primary-foreground));
-  border: none;
-  border-radius: 10px;
-  background: var(--cp-gradient);
-  box-shadow: 0 4px 10px -2px hsl(var(--primary) / 0.5);
-  cursor: pointer;
-  transition:
-    transform 0.15s,
-    opacity 0.15s;
+  color: var(--cp-primary);
 }
 
-.cp-send:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-
-.cp-send:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.cp-send:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.cp-send :deep(svg) {
+.cp-starter__icon :deep(svg) {
   width: 15px;
   height: 15px;
 }
 
+.cp-starter__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cp-starter__arrow {
+  flex-shrink: 0;
+  opacity: 0.35;
+}
+
+.cp-starter__arrow :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+/* ============================================================
+   底部说明
+   ============================================================ */
 .cp-hint {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  margin-top: 9px;
-  font-size: 10.5px;
+  margin-top: 4px;
+  font-size: 11.5px;
   color: var(--cp-sub);
 }
 
@@ -735,36 +1027,37 @@ onMounted(() => {
 }
 
 /* ============================================================
-   过渡动画（进入 ease-out，退出更快；尊重 reduced-motion）
+   过渡动画（进入 ease-out；尊重 reduced-motion）
    ============================================================ */
-.cp-msg-enter-active {
+.cp-starter-enter-active,
+.cp-starter-leave-active {
   transition: all 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
-.cp-msg-enter-from {
+.cp-starter-enter-from,
+.cp-starter-leave-to {
   opacity: 0;
   transform: translateY(8px);
 }
 
-.cp-chips-enter-active,
-.cp-chips-leave-active {
-  transition: all 0.2s ease;
-}
-
-.cp-chips-enter-from,
-.cp-chips-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .cp-msg,
-  .cp-chips {
+  .cp-starter {
     transition: none !important;
   }
+}
 
-  .cp-typing-dot {
-    animation: none !important;
+/* ============================================================
+   小屏适配
+   ============================================================ */
+@media (max-width: 640px) {
+  .cp-hero__suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .cp-thread,
+  .cp-dock {
+    padding-right: 14px;
+    padding-left: 14px;
   }
 }
 </style>

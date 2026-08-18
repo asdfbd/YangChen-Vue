@@ -6,7 +6,9 @@ import {usePreferences} from '@vben/preferences';
 import {useUserStore} from '@vben/stores';
 
 import ChatPanel from '#/components/chat-panel/index.vue';
-import type {ChatMessage} from '#/components/chat-panel/types';
+import HistorySidebar from '#/components/chat-panel/history-sidebar.vue';
+import {useChatHistory} from '#/components/chat-panel/chat-history';
+import type {ChatMessage, ChatStreamHandle} from '#/components/chat-panel/types';
 import {genId, nowTime} from '#/components/chat-panel/utils';
 
 import {buildGreeting, QUICK_QUESTIONS, resolveReply} from './knowledge';
@@ -16,11 +18,16 @@ defineOptions({name: 'AiAssistant'});
 /**
  * 扬辰 AI 智能助手（全局悬浮组件）
  * - 挂载于 basic.vue 布局，全站页面可见
- * - 界面复用通用 ChatPanel；本组件负责：悬浮球拖拽、面板定位、会话持久化、演示问答
- * - 接入真实后端时，替换 handleSend 的实现即可（流式场景改用 busy + 自行推送）
+ * - 界面复用通用 ChatPanel（对话）+ HistorySidebar（历史弹层）
+ * - 多会话历史：仅在当前页面内存中保留，不持久化消息
+ * - 接入真实后端时，替换 handleSend 的实现即可（流式：onChunk 逐块推送 + signal 中止）
  */
 
-const STORAGE_KEY = 'yangchen-ai-assistant-v2';
+const HISTORY_KEY = 'yangchen-ai-assistant-history-v1';
+/** 悬浮球位置 / 面板开关（与对话历史分开持久化） */
+const UI_KEY = 'yangchen-ai-assistant-ui-v1';
+/** 旧版存储（v2：单会话 + 界面状态），首次进入时迁移后移除 */
+const LEGACY_KEY = 'yangchen-ai-assistant-v2';
 
 /** 悬浮球尺寸与间距（与 CSS 保持一致） */
 const FAB_SIZE = 52;
@@ -33,6 +40,9 @@ const userStore = useUserStore();
 
 const open = ref(false);
 const dragging = ref(false);
+const historyOpen = ref(false);
+const historyBtnRef = ref<HTMLElement>();
+const historyPopRef = ref<HTMLElement>();
 
 /** 悬浮球被拖拽后的位置（left/top，相对视口）；null 表示未拖拽，使用默认右下角 */
 const fabPos = ref<{left: number; top: number} | null>(null);
@@ -61,8 +71,27 @@ const panelStyle = computed(() => {
   return {left: `${left}px`, bottom: `${vh - pos.top + FAB_GAP}px`};
 });
 
-/* ===== 消息数据（由 ChatPanel 通过 v-model 驱动） ===== */
-const messages = ref<ChatMessage[]>([]);
+/* ===== 多会话历史（仅当前页面内存） ===== */
+const {
+  conversations,
+  activeId,
+  active,
+  newChat,
+  open: openConversation,
+  remove: removeConversation,
+  saveActive,
+} = useChatHistory(HISTORY_KEY, false);
+// AI 消息不落地到浏览器，刷新页面后重新开始。
+// UI_KEY 仅保存悬浮球位置和展开状态，不包含消息内容。
+
+/**
+ * 消息绑定：v-model 直连"当前会话"，切换会话时数据源自动切换。
+ * 会话消息的读写由 ChatPanel 的 update:modelValue 驱动。
+ */
+const messages = computed<ChatMessage[]>({
+  get: () => (active.value ? active.value.messages : []),
+  set: (val) => saveActive(val),
+});
 
 const displayName = computed(
   () => userStore.userInfo?.realName || userStore.userInfo?.username || '',
@@ -77,63 +106,134 @@ function createGreeting(): ChatMessage {
   };
 }
 
+/** 当前会话为空（新建的空会话）时补上问候语 */
+function ensureGreeting() {
+  if (!active.value || active.value.messages.length === 0) {
+    messages.value = [createGreeting()];
+  }
+}
+
 function handleNewChat() {
-  messages.value = [createGreeting()];
+  historyOpen.value = false;
+  newChat();
+  ensureGreeting();
+}
+
+function handleSelect(id: string) {
+  historyOpen.value = false;
+  openConversation(id);
+}
+
+function handleRemove(id: string) {
+  removeConversation(id);
+  // 删除的是最后一个会话时，存储会自动新建空会话，此处补上问候语
+  ensureGreeting();
 }
 
 /**
- * 演示问答：返回字符串 -> ChatPanel 自动显示"正在输入"并追加回复。
- * 接入真实后端时替换为：async (text) => (await sendAiChatApi(text)).reply
- * 流式场景：返回 void，在 @send-start 中自行推送并控制 busy。
+ * 演示问答（流式）：按词块逐块推送回复，模拟后端实时输出。
+ * - onChunk：ChatPanel 实时更新助手消息并渲染 Markdown
+ * - signal：点击「停止生成」时中止，保留已生成的部分
+ * 接入真实后端时，替换为与业务助手相同的 streamChatApi 实现即可。
  */
-function handleSend(text: string): Promise<string> {
-  const delay = 600 + Math.random() * 900;
+function handleSend(
+  text: string,
+  onChunk?: (chunk: string) => void,
+  signal?: ChatStreamHandle,
+): Promise<string> {
   return new Promise((resolve) => {
-    window.setTimeout(() => resolve(resolveReply(text)), delay);
+    void resolveReply(text).then((full) => {
+      const tokens = full.match(/\s*\S+/g) ?? [full];
+      let index = 0;
+
+      const tick = () => {
+        if (signal?.aborted) {
+          resolve('');
+          return;
+        }
+        if (index >= tokens.length) {
+          resolve(full);
+          return;
+        }
+        const token = tokens[index];
+        if (token) {
+          onChunk?.(token);
+        }
+        index += 1;
+        window.setTimeout(tick, 14 + Math.random() * 30);
+      };
+
+      tick();
+    });
   });
 }
 
-/* ===== 会话持久化（localStorage） ===== */
-interface StoredState {
+/* ===== 界面状态持久化（悬浮球位置 / 面板开关） ===== */
+interface UiState {
   fab?: {left: number; top: number} | null;
-  messages?: ChatMessage[];
   open?: boolean;
 }
 
-function loadFromStorage(): StoredState | null {
+function loadUi(): UiState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as StoredState;
-    return data && typeof data === 'object' ? data : null;
+    const raw = localStorage.getItem(UI_KEY);
+    if (!raw) return {};
+    const data = JSON.parse(raw) as UiState;
+    return data && typeof data === 'object' ? data : {};
   } catch {
-    // 解析失败则忽略，回到默认问候
+    return {};
   }
-  return null;
 }
 
-const storedState = loadFromStorage();
-const stored = storedState?.messages;
-messages.value = stored && stored.length ? stored : [createGreeting()];
-
-if (storedState?.open) {
+const ui = loadUi();
+if (ui.open) {
   open.value = true;
 }
-if (storedState?.fab) {
-  fabPos.value = storedState.fab;
+if (ui.fab) {
+  fabPos.value = ui.fab;
 }
 
 watch(
-  () => ({fab: fabPos.value, messages: messages.value, open: open.value}),
+  () => ({fab: fabPos.value, open: open.value}),
   (state) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(UI_KEY, JSON.stringify(state));
     } catch {
       // 存储不可用时静默降级
     }
   },
   {deep: true},
 );
+
+/* ===== 旧版存储迁移（v2 单会话 -> 多会话历史） ===== */
+(function migrateLegacy() {
+  try {
+    const raw = localStorage.getItem(LEGACY_KEY);
+    if (!raw) return;
+    const old = JSON.parse(raw) as {
+      fab?: {left: number; top: number} | null;
+      messages?: ChatMessage[];
+      open?: boolean;
+    } | null;
+    if (old && typeof old === 'object') {
+      if (old.fab && !fabPos.value) {
+        fabPos.value = old.fab;
+      }
+      if (old.open && !open.value) {
+        open.value = true;
+      }
+    }
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    // 解析失败则忽略
+  }
+})();
+
+// 首次进入且无任何历史时，创建带问候语的新会话
+if (conversations.value.length === 0) {
+  newChat();
+  ensureGreeting();
+}
 
 /* ===== 悬浮球拖拽（位移阈值 5px，避免误触） ===== */
 function clampFab(left: number, top: number) {
@@ -181,18 +281,37 @@ function onPointerDown(e: PointerEvent) {
   window.addEventListener('pointercancel', onUp);
 }
 
-/* ===== Esc 关闭 ===== */
+/* ===== Esc 关闭 + 历史弹层点击外部关闭 ===== */
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    historyOpen.value = false;
     open.value = false;
   }
 }
 
 watch(open, (val) => {
+  if (!val) {
+    historyOpen.value = false;
+  }
   if (val) {
     window.addEventListener('keydown', onGlobalKeydown);
   } else {
     window.removeEventListener('keydown', onGlobalKeydown);
+  }
+});
+
+function onDocPointer(e: PointerEvent) {
+  const target = e.target as Node;
+  if (historyBtnRef.value?.contains(target)) return;
+  if (historyPopRef.value?.contains(target)) return;
+  historyOpen.value = false;
+}
+
+watch(historyOpen, (val) => {
+  if (val) {
+    window.addEventListener('pointerdown', onDocPointer);
+  } else {
+    window.removeEventListener('pointerdown', onDocPointer);
   }
 });
 </script>
@@ -220,7 +339,55 @@ watch(open, (val) => {
           :autofocus="true"
           @close="open = false"
           @new-chat="handleNewChat"
-        />
+        >
+          <template #header-actions>
+            <button
+              ref="historyBtnRef"
+              :class="['ai-hbtn', {'ai-hbtn--active': historyOpen}]"
+              title="历史对话"
+              aria-label="历史对话"
+              @click="historyOpen = !historyOpen"
+            >
+              <IconifyIcon icon="lucide:history"/>
+            </button>
+            <button
+              class="ai-hbtn"
+              title="新对话"
+              aria-label="新对话"
+              @click="handleNewChat"
+            >
+              <IconifyIcon icon="lucide:rotate-ccw"/>
+            </button>
+            <button
+              class="ai-hbtn"
+              title="收起"
+              aria-label="收起面板"
+              @click="open = false"
+            >
+              <IconifyIcon icon="lucide:chevron-down"/>
+            </button>
+          </template>
+        </ChatPanel>
+
+        <!-- 历史会话弹层 -->
+        <Transition name="ai-pop">
+          <div
+            v-if="historyOpen"
+            ref="historyPopRef"
+            class="ai-history-pop"
+            @click.stop
+          >
+            <HistorySidebar
+              :collapsible="false"
+              :conversations="conversations"
+              :active-id="activeId"
+              title="历史对话"
+              @select="handleSelect"
+              @remove="handleRemove"
+              @new-chat="handleNewChat"
+            />
+          </div>
+        </Transition>
       </section>
     </Transition>
 
@@ -286,6 +453,66 @@ watch(open, (val) => {
     hsl(var(--primary))
   );
   opacity: 0.9;
+}
+
+/* ============================================================
+   头部操作按钮（历史 / 新对话 / 收起）
+   ============================================================ */
+.ai-hbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-left: 2px;
+  padding: 0;
+  color: hsl(var(--muted-foreground));
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.ai-hbtn:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
+}
+
+.ai-hbtn--active {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+
+.ai-hbtn :deep(svg) {
+  width: 15px;
+  height: 15px;
+}
+
+/* ============================================================
+   历史会话弹层（复用 HistorySidebar，覆写为弹层形态）
+   ============================================================ */
+.ai-history-pop {
+  position: absolute;
+  top: 52px;
+  right: 10px;
+  z-index: 30;
+  display: flex;
+  width: 266px;
+  max-height: min(460px, calc(100% - 64px));
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  background: hsl(var(--card));
+  box-shadow: 0 18px 44px -14px rgba(15, 23, 42, 0.3);
+  transform-origin: top right;
+}
+
+.ai-history-pop :deep(.hs) {
+  width: 100%;
+  border-right: none;
 }
 
 /* ============================================================
@@ -402,6 +629,24 @@ watch(open, (val) => {
   transform: translateY(12px) scale(0.97);
 }
 
+.ai-pop-enter-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.ai-pop-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.16s ease;
+}
+
+.ai-pop-enter-from,
+.ai-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
+
 .ai-fab-enter-active {
   transition:
     opacity 0.18s ease,
@@ -422,7 +667,8 @@ watch(open, (val) => {
 
 @media (prefers-reduced-motion: reduce) {
   .ai-panel,
-  .ai-fab {
+  .ai-fab,
+  .ai-history-pop {
     transition: none !important;
   }
 }
@@ -445,6 +691,11 @@ watch(open, (val) => {
 
   .ai-fab__tip {
     display: none;
+  }
+
+  .ai-history-pop {
+    right: 8px;
+    width: min(266px, calc(100vw - 24px));
   }
 }
 </style>

@@ -19,6 +19,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.web.filter.CorsFilter;
 
+import jakarta.servlet.DispatcherType;
+
 /**
  * spring security配置
  *
@@ -102,6 +104,8 @@ public class SecurityConfig {
                             .requestMatchers(HttpMethod.GET, "/", "/*.html", "/**.html", "/**.css", "/**.js", "/profile/**").permitAll()
                             .requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**", "/druid/**", "/doc.html/**",
                                     "/webjars/**", "/favicon.ico").permitAll()
+                            // Spring MVC 流式响应的异步二次派发沿用首次请求的认证结果
+                            .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                             // 除上面外的所有请求全部需要鉴权认证
                             .anyRequest().authenticated();
                 })

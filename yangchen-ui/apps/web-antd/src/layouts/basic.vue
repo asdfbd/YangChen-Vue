@@ -2,7 +2,7 @@
 import {BasicLayout, LockScreen, UserDropdown,} from '@vben/layouts';
 
 import {computed, watch} from 'vue';
-import {useRouter} from 'vue-router';
+import {useRoute, useRouter} from 'vue-router';
 
 import {AuthenticationLoginExpiredModal} from '@vben/common-ui';
 import {useWatermark} from '@vben/hooks';
@@ -16,11 +16,25 @@ import {useAuthStore} from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
 const {destroyWatermark, updateWatermark} = useWatermark();
 const {isDark} = usePreferences();
+const showGlobalAiAssistant = computed(
+  () => {
+    const routeName = String(route.name ?? '').toLowerCase();
+    const routePath = route.path.toLowerCase();
+    const routeTitle = String(route.meta?.title ?? '');
+    const isBusinessAssistant =
+      routeName.includes('businessassistant') ||
+      routePath.includes('business-assitant') ||
+      routePath.includes('business-assistant') ||
+      routeTitle.includes('业务助手');
+    return !isBusinessAssistant;
+  },
+);
 
 const menus = computed(() => [
   {
@@ -115,5 +129,5 @@ watch(
   </BasicLayout>
 
   <!-- 全局 AI 智能助手（所有页面可见） -->
-  <AiAssistant/>
+  <AiAssistant v-if="showGlobalAiAssistant"/>
 </template>

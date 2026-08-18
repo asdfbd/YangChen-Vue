@@ -17,6 +17,10 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.yangchen</groupId>
             <artifactId>yangchen-common</artifactId>
         </dependency>
