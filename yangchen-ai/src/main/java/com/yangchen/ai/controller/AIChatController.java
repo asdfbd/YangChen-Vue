@@ -2,12 +2,9 @@ package com.yangchen.ai.controller;
 
 
 import cn.hutool.core.util.IdUtil;
-import com.yangchen.ai.context.AIContext;
 import com.yangchen.ai.entity.AIChatContent;
-import com.yangchen.ai.entity.AiChatTitle;
 import com.yangchen.ai.entity.vo.ChatResp;
 import com.yangchen.ai.service.AIChatContentService;
-import com.yangchen.ai.service.AiChatTitleService;
 import com.yangchen.common.core.domain.R;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -23,7 +20,6 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
-import java.util.Objects;
 
 @RestController
 @Tag(name = "AI对话管理")
@@ -32,7 +28,6 @@ import java.util.Objects;
 public class AIChatController {
     private final ChatClient chatClient;
     private final AIChatContentService aiChatContentService;
-    private final AiChatTitleService aiChatTitleService;
     private final ToolCallbackResolver toolCallbackResolver;
 
     @PostMapping("/")
@@ -41,11 +36,6 @@ public class AIChatController {
             @Parameter(name = "userInput", description = "用户输入")
     })
     public Flux<ChatResp> chat(@RequestBody String userInput) {
-        AiChatTitle aiChatTitle = aiChatTitleService.listByConversationId(Long.valueOf(AIContext.getConversationId()));
-        if (Objects.isNull(aiChatTitle)) {
-            //生成标题
-            aiChatTitleService.generateTitle(userInput, Long.valueOf(AIContext.getConversationId()));
-        }
         return chatClient.prompt()
                 .user(userInput)
                 .stream()

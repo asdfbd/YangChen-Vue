@@ -18,8 +18,10 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -35,6 +37,11 @@ public class CommonTool {
 
     private static final int MAX_TABLE_COUNT = 200;
     private static final int MAX_ROW_COUNT = 200;
+    private static final int MAX_CHOICE_OPTION_COUNT = 6;
+    private static final int MAX_CHOICE_DESCRIPTION_LENGTH = 120;
+    private static final int MAX_CHOICE_LABEL_LENGTH = 40;
+    private static final int MAX_CHOICE_QUESTION_LENGTH = 120;
+    private static final int MAX_CHOICE_VALUE_LENGTH = 200;
     private static final int QUERY_TIMEOUT_SECONDS = 10;
     private static final String DEFAULT_SCHEMA = "public";
     private static final Pattern TABLE_IDENTIFIER = Pattern.compile(
@@ -120,6 +127,58 @@ public class CommonTool {
     public R<ReadOnlyQueryResult> executeReadOnlySqlForAnalysis(
             @ToolParam(description = "根据已读取的表结构生成的单条 SELECT/WITH 查询 SQL，不要带代码块标记") String sql) {
         return executeReadOnlyQuery(sql);
+    }
+
+    /** 在用户意图存在明确分支时，向前端下发可直接选择的澄清项。 */
+    @Tool(
+            name = "askUserChoice",
+            returnDirect = true,
+            description = """
+                    向用户展示一个可直接选择的澄清问题。仅在无法确定查询对象、查询范围，或无法判断用户想“直接查看数据”还是“分析说明”时使用。
+                    question 使用一句简短、面向业务用户的问题；options 必须提供 2 到 6 项，每项使用清晰中文 label，value 必须是用户选中后可直接作为下一轮消息发送的完整业务意图，description 可选。
+                    调用后会由界面展示下拉选择器，用户选择会自动发送，因此不要在普通文本中重复列出选项、工具名称、表名、字段名或查询过程。
+                    用户已提供唯一条件，或意图已经明确时不要调用；此工具不查询数据、不执行任何业务操作。
+                    """
+    )
+    public R<UserChoiceResult> askUserChoice(
+            @ToolParam(description = "需要用户确认的一句简短问题") String question,
+            @ToolParam(description = "2 至 6 个可选项；每项包含 label、value 和可选 description") List<UserChoiceOption> options) {
+        String normalizedQuestion = normalizeChoiceText(question, MAX_CHOICE_QUESTION_LENGTH);
+        if (normalizedQuestion.isBlank()) {
+            return R.error("请选择需要确认的业务范围");
+        }
+
+        List<UserChoiceOption> normalizedOptions = new ArrayList<>();
+        Set<String> seenValues = new LinkedHashSet<>();
+        if (options != null) {
+            for (UserChoiceOption option : options) {
+                if (option == null || normalizedOptions.size() >= MAX_CHOICE_OPTION_COUNT) {
+                    continue;
+                }
+                String label = normalizeChoiceText(option.label(), MAX_CHOICE_LABEL_LENGTH);
+                String value = normalizeChoiceText(option.value(), MAX_CHOICE_VALUE_LENGTH);
+                if (value.isBlank()) {
+                    value = label;
+                }
+                if (label.isBlank() || value.isBlank() || !seenValues.add(value)) {
+                    continue;
+                }
+                normalizedOptions.add(new UserChoiceOption(
+                        label,
+                        value,
+                        normalizeChoiceText(option.description(), MAX_CHOICE_DESCRIPTION_LENGTH)));
+            }
+        }
+
+        if (normalizedOptions.size() < 2) {
+            return R.error("请提供至少两项可选的业务范围");
+        }
+        return R.ok(new UserChoiceResult(
+                "ui",
+                "select",
+                normalizedQuestion,
+                "请选择一项",
+                List.copyOf(normalizedOptions)));
     }
 
     private R<ReadOnlyQueryResult> executeReadOnlyQuery(String sql) {
@@ -309,6 +368,14 @@ public class CommonTool {
         return normalized;
     }
 
+    private String normalizeChoiceText(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= maxLength ? normalized : normalized.substring(0, maxLength);
+    }
+
     private String maskQuotedText(String sql) {
         StringBuilder result = new StringBuilder(sql.length());
         char quote = 0;
@@ -434,6 +501,17 @@ public class CommonTool {
     }
 
     public record QueryColumn(String name, String typeName) {
+    }
+
+    public record UserChoiceResult(
+            String type,
+            String component,
+            String question,
+            String placeholder,
+            List<UserChoiceOption> options) {
+    }
+
+    public record UserChoiceOption(String label, String value, String description) {
     }
 
 }

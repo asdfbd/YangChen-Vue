@@ -2,6 +2,7 @@ package com.yangchen.ai.controller;
 
 
 import com.yangchen.ai.entity.AiChatTitle;
+import com.yangchen.ai.context.AIContext;
 import com.yangchen.ai.service.AiChatTitleService;
 import com.yangchen.common.core.domain.R;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,6 +10,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -27,6 +29,19 @@ public class AIChatTitleController {
     })
     public R<List<AiChatTitle>> list(@PathVariable Long userId) {
         return R.ok(aiChatTitleService.listByUserId(userId));
+    }
+
+    @PostMapping("/generate")
+    @Operation(summary = "生成会话标题")
+    @Parameters({
+            @Parameter(name = "x-conversation-id", description = "会话id", required = true)
+    })
+    public R<AiChatTitle> generate(@RequestBody String userInput) {
+        if (StringUtils.isBlank(userInput)) {
+            return R.error("首条对话内容不能为空");
+        }
+        Long conversationId = Long.valueOf(AIContext.getConversationId());
+        return R.ok(aiChatTitleService.generateTitleIfAbsent(userInput, conversationId));
     }
 
     @PutMapping("/")

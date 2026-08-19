@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -74,12 +75,26 @@ public class AiChatTitleServiceImpl implements AiChatTitleService {
     }
 
     @Override
-    public void generateTitle(String userInput, Long conversationId) {
+    public AiChatTitle generateTitleIfAbsent(String userInput, Long conversationId) {
+        AiChatTitle existing = listByConversationId(conversationId);
+        if (Objects.nonNull(existing)) {
+            return existing;
+        }
+
         String content = chatClient.prompt().user(userInput).call().content();
         AiChatTitle aiChatTitle = new AiChatTitle();
-        aiChatTitle.setTitle(content);
+        aiChatTitle.setTitle(normalizeTitle(content, userInput));
         aiChatTitle.setConversationId(conversationId);
         aiChatTitle.setUserId(SecurityUtils.getUserId());
         save(aiChatTitle);
+        return aiChatTitle;
+    }
+
+    private String normalizeTitle(String generatedTitle, String userInput) {
+        String title = StringUtils.defaultIfBlank(generatedTitle, userInput)
+                .replaceAll("[\\r\\n]+", " ")
+                .trim()
+                .replaceAll("^[\\\"“”'‘’]+|[\\\"“”'‘’]+$", "");
+        return StringUtils.abbreviate(StringUtils.defaultIfBlank(title, "新对话"), 20);
     }
 }

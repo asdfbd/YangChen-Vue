@@ -22,5 +22,5 @@ public interface AiChatTitleService {
 
     AiChatTitle listByConversationId(Long conversationId);
 
-    void generateTitle(String userInput, Long conversationId);
+    AiChatTitle generateTitleIfAbsent(String userInput, Long conversationId);
 }
