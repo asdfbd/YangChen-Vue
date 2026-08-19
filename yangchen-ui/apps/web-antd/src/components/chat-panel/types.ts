@@ -11,6 +11,7 @@ export type AiUiComponent =
   | 'confirm'
   | 'form'
   | 'result'
+  | 'select'
   | 'error'
   | (string & {});
 

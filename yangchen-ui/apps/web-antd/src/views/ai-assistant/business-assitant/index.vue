@@ -18,6 +18,7 @@ import {parseDirectQueryUi} from '#/components/chat-panel/direct-query-ui';
 import {
   deleteChatTitleApi,
   generateConversationIdApi,
+  generateChatTitleApi,
   listChatContentApi,
   listChatTitlesApi,
   streamChatApi,
@@ -26,6 +27,7 @@ import type {
   AiUiPayload,
   ChatMessage,
   ChatStreamHandle,
+  ChatUiAction,
 } from '#/components/chat-panel/types';
 import {genId, nowTime} from '#/components/chat-panel/utils';
 
@@ -69,6 +71,8 @@ const {
 })();
 
 const creatingConversation = ref(false);
+const chatPanelRef = ref<InstanceType<typeof ChatPanel>>();
+const titleGenerationInProgress = new Set<string>();
 let historyRequestVersion = 0;
 let contentRequestVersion = 0;
 const loadingConversationId = ref<string | null>(null);
@@ -229,8 +233,9 @@ async function loadConversationMessages(conversationId: string): Promise<boolean
     (item) => item.conversationId === conversationId,
   );
   if (!conversation) return false;
-  if (conversation.messagesLoaded) return true;
 
+  // 每次切换会话都重新拉取，保证内容与服务端落库状态一致。
+  // requestVersion 仍用于阻止快速切换时的旧请求覆盖当前会话。
   const requestVersion = ++contentRequestVersion;
   loadingConversationId.value = conversationId;
   conversationLoadError.value = null;
@@ -403,6 +408,36 @@ async function handleSelect(id: string) {
   await loadConversationMessages(conversation.conversationId || id);
 }
 
+/** 首条消息才异步生成标题；只原地更新对应会话，绝不刷新或切换整个历史列表。 */
+function generateConversationTitle(conversationId: string, userInput: string) {
+  const conversation = conversations.value.find(
+    (item) => item.conversationId === conversationId,
+  );
+  if (
+    !conversation ||
+    conversation.title !== DEFAULT_TITLE ||
+    titleGenerationInProgress.has(conversationId)
+  ) {
+    return;
+  }
+
+  titleGenerationInProgress.add(conversationId);
+  void generateChatTitleApi(userInput, conversationId)
+    .then((title) => {
+      const target = conversations.value.find(
+        (item) => item.conversationId === conversationId,
+      );
+      const generatedTitle = title?.title?.trim();
+      if (!target || !generatedTitle) return;
+      target.title = generatedTitle;
+      target.updatedAt = toTimestamp(title.updateTime || title.createTime);
+    })
+    .catch(() => {
+      // 标题生成失败不影响主对话；下一轮发送仍会尝试生成。
+    })
+    .finally(() => titleGenerationInProgress.delete(conversationId));
+}
+
 async function retryLoadActiveConversation() {
   const conversationId = active.value?.conversationId;
   if (!conversationId) return;
@@ -421,6 +456,20 @@ async function handleRemove(id: string) {
   } finally {
     remove(id);
   }
+}
+
+/** 选择器选中后直接复用 ChatPanel 的标准发送链路。 */
+function handleUiAction(payload: ChatUiAction) {
+  const choiceValue = payload.values?.choiceValue;
+  if (
+    payload.message.type !== 'select' ||
+    payload.action !== 'submit' ||
+    typeof choiceValue !== 'string' ||
+    !choiceValue.trim()
+  ) {
+    return;
+  }
+  void chatPanelRef.value?.sendText(choiceValue);
 }
 
 /** 当前在途的流式中止句柄（切换会话 / 卸载时主动停止，防止增量写入错误的会话） */
@@ -452,6 +501,7 @@ async function handleSend(
   }
   try {
     const conversationId = await ensureConversationId();
+    generateConversationTitle(conversationId, text);
     const reply = await streamChatApi(
       text,
       conversationId,
@@ -459,8 +509,6 @@ async function handleSend(
       controller?.signal,
       onUiMessage,
     );
-    // 首轮回答完成后，后端会异步生成标题；重新拉取让历史列表立即显示新标题。
-    await loadHistory();
     if (currentSignal === signal) currentSignal = null;
     return reply;
   } catch {
@@ -494,6 +542,7 @@ async function handleSend(
     <main class="ba-main">
       <div class="ba-chat-shell">
         <ChatPanel
+          ref="chatPanelRef"
           v-model="messages"
           variant="page"
           title="业务助手"
@@ -508,6 +557,7 @@ async function handleSend(
           :closable="false"
           :new-chatable="false"
           @new-chat="handleNewChat"
+          @ui-action="handleUiAction"
         />
 
         <div v-if="isConversationLoading" class="ba-conversation-state" role="status">

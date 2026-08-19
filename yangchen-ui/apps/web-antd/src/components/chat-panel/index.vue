@@ -138,6 +138,8 @@ const activeSignal = ref<ChatStreamHandle | null>(null);
 const streamingId = ref<string | null>(null);
 /** 用户是否停留在消息底部（流式期间仅在底部时自动滚动） */
 const stickToBottom = ref(true);
+/** 用户离最新消息较远时显示「回到底部」快捷按钮。 */
+const showBackToBottom = ref(false);
 
 const isBusy = computed(() => props.busy || pending.value);
 
@@ -173,15 +175,29 @@ function pushMessage(
 function onThreadScroll() {
   const el = listRef.value;
   if (!el) return;
-  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  stickToBottom.value = distanceToBottom < 120;
+  showBackToBottom.value = distanceToBottom > 180;
 }
 
 function scrollToBottom() {
   if (!stickToBottom.value) return;
   nextTick(() => {
     const el = listRef.value;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      showBackToBottom.value = false;
+    }
   });
+}
+
+/** 手动回到最新消息；流式输出随后恢复自动吸底。 */
+function scrollToLatestMessage() {
+  const el = listRef.value;
+  if (!el) return;
+  stickToBottom.value = true;
+  showBackToBottom.value = false;
+  el.scrollTo({top: el.scrollHeight, behavior: 'smooth'});
 }
 
 watch(
@@ -375,6 +391,9 @@ async function submit(text: string) {
   }
 }
 
+/** 供宿主调用，用于选择器等业务 UI 触发的即时发送。 */
+defineExpose({sendText: submit});
+
 function focusComposer() {
   nextTick(() => composerRef.value?.focus());
 }
@@ -495,6 +514,19 @@ watch(showHero, (val) => {
               @ui-action="emit('ui-action', $event)"
             />
           </div>
+          <Transition name="cp-back-bottom">
+            <button
+              v-if="showBackToBottom"
+              class="cp-back-bottom"
+              type="button"
+              title="回到最新消息"
+              aria-label="回到最新消息"
+              @click="scrollToLatestMessage"
+            >
+              <IconifyIcon icon="lucide:arrow-down-to-line"/>
+              <span>回到底部</span>
+            </button>
+          </Transition>
           <div class="cp-dock">
             <div class="cp-dock__inner">
               <ChatComposer
@@ -905,6 +937,7 @@ watch(showHero, (val) => {
 
 /* 对话区 */
 .cp-page-thread {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -932,6 +965,50 @@ watch(showHero, (val) => {
 .cp-thread :deep(.cml-list) {
   max-width: 960px;
   margin: 0 auto;
+}
+
+/* 居中放在输入框上方，便于在长内容中快速回到最新消息。 */
+.cp-back-bottom {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 84px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 17px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: hsl(var(--primary-foreground));
+  border: 1px solid hsl(var(--primary) / 0.55);
+  border-radius: 20px;
+  background: var(--cp-gradient);
+  box-shadow: 0 12px 28px -13px hsl(var(--primary) / 0.8);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition:
+    border-color 0.16s,
+    box-shadow 0.16s,
+    transform 0.16s;
+}
+
+.cp-back-bottom:hover {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 16px 30px -13px hsl(var(--primary) / 0.88);
+  transform: translate(-50%, -2px);
+}
+
+.cp-back-bottom:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.65);
+  outline-offset: 2px;
+}
+
+.cp-back-bottom :deep(svg) {
+  width: 17px;
+  height: 17px;
 }
 
 .cp-dock {
@@ -1085,8 +1162,23 @@ watch(showHero, (val) => {
   transform: translateY(8px);
 }
 
+.cp-back-bottom-enter-active,
+.cp-back-bottom-leave-active {
+  transition: all 0.18s ease;
+}
+
+.cp-back-bottom-enter-from,
+.cp-back-bottom-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cp-starter {
+    transition: none !important;
+  }
+
+  .cp-back-bottom {
     transition: none !important;
   }
 }

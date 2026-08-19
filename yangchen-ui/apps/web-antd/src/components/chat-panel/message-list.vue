@@ -3,6 +3,7 @@ import {IconifyIcon} from '@vben/icons';
 
 import ChatMessageText from './message-text.vue';
 import ConfirmCard from './renderers/confirm-card.vue';
+import ChoiceCard from './renderers/choice-card.vue';
 import DataTable from './renderers/data-table.vue';
 import DetailCard from './renderers/detail-card.vue';
 import DynamicForm from './renderers/dynamic-form.vue';
@@ -48,6 +49,7 @@ const builtInRenderers: ChatRendererMap = {
   table: DataTable,
   stat: StatCard,
   confirm: ConfirmCard,
+  select: ChoiceCard,
   form: DynamicForm,
   result: ResultCard,
   error: ErrorCard,
@@ -66,6 +68,8 @@ function rendererFor(msg: ChatMessage) {
 function textRendererProps(msg: ChatMessage) {
   return rendererFor(msg) === ChatMessageText
     ? {message: msg, streaming: msg.id === props.streamingId}
+    : rendererFor(msg) === ChoiceCard
+      ? {message: msg, disabled: props.busy}
     : {message: msg};
 }
 

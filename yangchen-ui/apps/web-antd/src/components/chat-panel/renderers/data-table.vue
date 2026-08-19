@@ -3,8 +3,6 @@ import {computed} from 'vue';
 
 import {IconifyIcon} from '@vben/icons';
 
-import {fieldLabel} from '../field-labels';
-
 import {displayValue, getUiData, isRecord} from './ui-types';
 
 import type {ChatMessage} from '../types';
@@ -21,11 +19,9 @@ function columnKey(column: unknown, index: number) {
 }
 
 function columnTitle(column: unknown, index: number) {
-  const raw = isRecord(column)
+  return isRecord(column)
     ? String(column.title ?? column.label ?? column.key ?? `列 ${index + 1}`)
     : String(column);
-  // 历史消息可能只保存了英文字段名，统一映射为中文表头
-  return fieldLabel(raw);
 }
 
 function cellValue(row: unknown, column: unknown, index: number) {

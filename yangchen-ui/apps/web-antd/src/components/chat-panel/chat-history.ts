@@ -141,15 +141,12 @@ export function useChatHistory(storageKey: string, persistMessages = true) {
     persist();
   }
 
-  /** 保存当前会话的消息（自动生成标题、刷新活跃时间） */
+  /** 保存当前会话的消息并刷新活跃时间；标题仅由后端标题接口更新。 */
   function saveActive(messages: ChatMessage[]) {
     const conv = active.value;
     if (!conv) return;
     conv.messages = messages;
     conv.messagesLoaded = true;
-    if (!conv.title || conv.title === DEFAULT_TITLE) {
-      conv.title = titleFromMessages(messages) || DEFAULT_TITLE;
-    }
     conv.updatedAt = Date.now();
     persist();
   }

@@ -68,6 +68,16 @@ export function listChatContentApi(conversationId: string | number) {
   });
 }
 
+/** 根据首条用户消息生成会话标题；重复调用同一会话会直接返回既有标题。 */
+export function generateChatTitleApi(
+  userInput: string,
+  conversationId: string | number,
+) {
+  return requestClient.post<ChatTitle>('/ai/chat/title/generate', userInput, {
+    headers: {[CONVERSATION_ID_HEADER]: String(conversationId)},
+  });
+}
+
 export function updateChatTitleApi(
   title: Pick<ChatTitle, 'id' | 'title'> & {conversationId?: string | number},
 ) {
@@ -158,10 +168,17 @@ export async function streamChatApi(
       return;
     }
 
-    // `returnDirect` 的统一结果集一般以 {"msg" 或 {"code" 开头；
-    // 仅从这一明确前缀开始暂存，普通 Markdown 仍然实时输出。
-    const match = /\{\s*"(?:msg|code)"\s*:/.exec(text);
+    // `returnDirect` 的统一结果集可能被模型转义为 {\"msg\"...}，
+    // 并且开头的 {\ 还可能被单独拆成一个流式分片。
+    const match = /\{\s*\\?"(?:msg|code)"\s*:/.exec(text);
     if (!match || match.index === undefined) {
+      const possibleStart = /\{\s*(?:\\?"?)?$/.exec(text);
+      if (possibleStart?.index !== undefined) {
+        const beforePayload = text.slice(0, possibleStart.index);
+        if (beforePayload) onChunk?.(beforePayload);
+        directPayloadBuffer = text.slice(possibleStart.index);
+        return;
+      }
       onChunk?.(text);
       return;
     }
