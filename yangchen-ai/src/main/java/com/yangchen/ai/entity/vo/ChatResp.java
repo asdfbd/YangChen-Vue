@@ -11,8 +11,6 @@ import lombok.Data;
 public class ChatResp {
     @Schema(description = "文本")
     private String text;
-    @Schema(description = "思考文本")
-    private String reasonText;
     @Schema(description = "角色")
     private String role;
 }

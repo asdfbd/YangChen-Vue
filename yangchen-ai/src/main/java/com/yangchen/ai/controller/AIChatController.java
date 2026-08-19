@@ -16,8 +16,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.Generation;
-import org.springframework.ai.deepseek.DeepSeekAssistantMessage;
+import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -32,6 +33,7 @@ public class AIChatController {
     private final ChatClient chatClient;
     private final AIChatContentService aiChatContentService;
     private final AiChatTitleService aiChatTitleService;
+    private final ToolCallbackResolver toolCallbackResolver;
 
     @PostMapping("/")
     @Operation(summary = "AI常规对话")
@@ -42,7 +44,7 @@ public class AIChatController {
         AiChatTitle aiChatTitle = aiChatTitleService.listByConversationId(Long.valueOf(AIContext.getConversationId()));
         if (Objects.isNull(aiChatTitle)) {
             //生成标题
-            aiChatTitleService.generateTitle(userInput,Long.valueOf(AIContext.getConversationId()));
+            aiChatTitleService.generateTitle(userInput, Long.valueOf(AIContext.getConversationId()));
         }
         return chatClient.prompt()
                 .user(userInput)
@@ -51,27 +53,19 @@ public class AIChatController {
                 .flatMap(resp -> {
                     if (resp == null) {
                         return Flux.empty();
-                    } else {
-                        resp.getResult();
-                        resp.getResult();
                     }
                     ChatResp chatResp = new ChatResp();
                     chatResp.setRole("assistant");
 
                     Generation result = resp.getResult();
-                    DeepSeekAssistantMessage message = (DeepSeekAssistantMessage) result.getOutput();
-                    String reasoningContent = message.getReasoningContent();
+                    AssistantMessage message = result.getOutput();
                     String text = message.getText();
-                    if (StringUtils.isBlank(text) && StringUtils.isBlank(reasoningContent)) {
+                    // 不向前端透出模型思考过程，只流式返回最终回答。
+                    if (StringUtils.isBlank(text)) {
                         return Flux.empty();
                     }
 
-                    if (StringUtils.isNotBlank(text)) {
-                        chatResp.setText(text);
-                    }
-                    if (StringUtils.isNotBlank(reasoningContent)) {
-                        chatResp.setReasonText(reasoningContent);
-                    }
+                    chatResp.setText(text);
                     return Flux.just(chatResp);
                 });
     }
