@@ -3,6 +3,36 @@ import type {Component} from 'vue';
 /** 消息角色 */
 export type ChatRole = 'user' | 'assistant';
 
+/** 通用业务 UI 组件类型。后端只描述组件，不下发前端路由或任意地址。 */
+export type AiUiComponent =
+  | 'detail'
+  | 'table'
+  | 'stat'
+  | 'confirm'
+  | 'form'
+  | 'result'
+  | 'error'
+  | (string & {});
+
+/** 通用 UI 操作描述。写操作由宿主接管，组件本身不会直接请求后端。 */
+export interface AiUiActionSpec {
+  actionId: string;
+  confirmText?: string;
+  cancelText?: string;
+  submitText?: string;
+}
+
+/** AI 流中下发的业务 UI 描述。 */
+export interface AiUiPayload {
+  type: 'ui';
+  component: AiUiComponent;
+  data?: unknown;
+  action?: AiUiActionSpec;
+  messageId?: string;
+  /** 直出查询确认后清除已输出的模型前缀，仅保留结构化结果。 */
+  replaceText?: boolean;
+}
+
 /** 聊天消息 */
 export interface ChatMessage {
   id: string;
@@ -13,6 +43,14 @@ export interface ChatMessage {
   type?: string;
   /** 业务扩展数据，由自定义渲染器消费 */
   extra?: Record<string, unknown>;
+}
+
+/** 业务 UI 组件向页面宿主发出的操作事件。 */
+export interface ChatUiAction {
+  actionId?: string;
+  action: 'confirm' | 'cancel' | 'submit';
+  values?: Record<string, unknown>;
+  message: ChatMessage;
 }
 
 /**
@@ -42,6 +80,7 @@ export type ChatSendHandler = (
   text: string,
   onChunk?: (chunk: string) => void,
   signal?: ChatStreamHandle,
+  onUiMessage?: (payload: AiUiPayload) => void,
 ) => Promise<string | void> | string | void;
 
 /**

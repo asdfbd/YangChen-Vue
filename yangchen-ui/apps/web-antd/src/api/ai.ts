@@ -3,12 +3,21 @@ import {useAccessStore} from '@vben/stores';
 
 import {requestClient} from './request';
 
+import {parseDirectQueryUi} from '#/components/chat-panel/direct-query-ui';
+
+import type {AiUiPayload, AiUiComponent, AiUiActionSpec} from '#/components/chat-panel/types';
+
 const {apiURL} = useAppConfig(import.meta.env, import.meta.env.PROD);
 
 export interface ChatResp {
   text?: string;
-  reasonText?: string;
   role?: string;
+  type?: 'text' | 'ui' | 'event' | string;
+  component?: AiUiComponent;
+  data?: unknown;
+  action?: AiUiActionSpec;
+  messageId?: string;
+  ui?: Omit<AiUiPayload, 'type'> & {type?: 'ui'};
 }
 
 export interface ChatTitle {
@@ -26,6 +35,12 @@ export interface ChatContent {
   messageType: string;
   content: string;
   createTime?: string;
+  type?: 'text' | 'ui' | 'event' | string;
+  component?: AiUiComponent;
+  data?: unknown;
+  action?: AiUiActionSpec;
+  messageId?: string;
+  ui?: Omit<AiUiPayload, 'type'> & {type?: 'ui'};
 }
 
 export const CONVERSATION_ID_HEADER = 'x-conversation-id';
@@ -80,6 +95,7 @@ export async function streamChatApi(
   conversationId: string,
   onChunk?: (chunk: string) => void,
   signal?: AbortSignal,
+  onUiMessage?: (payload: AiUiPayload) => void,
 ): Promise<string> {
   const accessStore = useAccessStore();
   const response = await fetch(`${apiURL}/ai/chat/`, {
@@ -108,9 +124,53 @@ export async function streamChatApi(
   const decoder = new TextDecoder();
   let buffer = '';
   let result = '';
-  let reasoning = '';
-  let hasReasoning = false;
-  let hasAnswer = false;
+  let hasUiMessage = false;
+  let directPayloadBuffer = '';
+  let directResultHandled = false;
+
+  const emitUi = (payload: AiUiPayload) => {
+    hasUiMessage = true;
+    onUiMessage?.(payload);
+  };
+
+  const flushDirectPayload = (force = false) => {
+    if (!directPayloadBuffer) return;
+    const ui = parseDirectQueryUi(directPayloadBuffer);
+    if (ui) {
+      directResultHandled = true;
+      directPayloadBuffer = '';
+      emitUi(ui);
+      return;
+    }
+    if (force) {
+      onChunk?.(directPayloadBuffer);
+      directPayloadBuffer = '';
+    }
+  };
+
+  const consumeText = (text: string) => {
+    result += text;
+    if (directResultHandled) return;
+
+    if (directPayloadBuffer) {
+      directPayloadBuffer += text;
+      flushDirectPayload();
+      return;
+    }
+
+    // `returnDirect` 的统一结果集一般以 {"msg" 或 {"code" 开头；
+    // 仅从这一明确前缀开始暂存，普通 Markdown 仍然实时输出。
+    const match = /\{\s*"(?:msg|code)"\s*:/.exec(text);
+    if (!match || match.index === undefined) {
+      onChunk?.(text);
+      return;
+    }
+
+    const beforePayload = text.slice(0, match.index);
+    if (beforePayload) onChunk?.(beforePayload);
+    directPayloadBuffer = text.slice(match.index);
+    flushDirectPayload();
+  };
 
   const consumeLine = (line: string) => {
     const payload = line.trim().replace(/^data:\s*/, '');
@@ -120,21 +180,28 @@ export async function streamChatApi(
       const parsed = JSON.parse(payload) as ChatResp | ChatResp[];
       const chunks = Array.isArray(parsed) ? parsed : [parsed];
       chunks.forEach((chunk) => {
-        if (chunk?.reasonText?.trim()) {
-          if (!hasReasoning) {
-            hasReasoning = true;
-            onChunk?.(':::thinking\n');
-          }
-          reasoning += chunk.reasonText;
-          onChunk?.(chunk.reasonText);
+        const ui = chunk.ui?.component
+          ? {
+              type: 'ui' as const,
+              component: chunk.ui.component,
+              data: chunk.ui.data,
+              action: chunk.ui.action,
+              messageId: chunk.ui.messageId,
+            }
+          : chunk.type === 'ui' && chunk.component
+            ? {
+                type: 'ui' as const,
+                component: chunk.component,
+                data: chunk.data,
+                action: chunk.action,
+                messageId: chunk.messageId,
+              }
+            : null;
+        if (ui) {
+          emitUi(ui);
         }
         if (chunk?.text?.trim()) {
-          if (hasReasoning && !hasAnswer) {
-            onChunk?.('\n:::\n\n**回答**\n\n');
-          }
-          hasAnswer = true;
-          result += chunk.text;
-          onChunk?.(chunk.text);
+          consumeText(chunk.text);
         }
       });
     } catch {
@@ -161,18 +228,12 @@ export async function streamChatApi(
     reader.releaseLock();
   }
 
-  // 仅返回思考文本时也补齐结束标记，让前端在流结束后自动收起思考过程。
-  if (hasReasoning && !hasAnswer) {
-    onChunk?.('\n:::');
-  }
+  flushDirectPayload(true);
 
-  if (!result.trim() && !reasoning.trim()) {
+  if (!result.trim() && !hasUiMessage) {
     throw new Error('AI 接口未返回有效内容');
   }
 
-  if (reasoning.trim() && result.trim()) {
-    return `:::thinking\n${reasoning}\n:::\n\n**回答**\n\n${result}`;
-  }
-
-  return reasoning ? `:::thinking\n${reasoning}\n:::` : result;
+  // 仅消费最终回答或结构化 UI 消息，避免旧服务端意外返回 reasonText 时重新展示思考过程。
+  return result;
 }

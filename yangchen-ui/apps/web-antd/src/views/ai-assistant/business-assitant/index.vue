@@ -7,12 +7,14 @@ import {
   onMounted,
   ref,
 } from 'vue';
+import {useRoute} from 'vue-router';
 
-import {useUserStore} from '@vben/stores';
+import {getTabKey, useTabbarStore, useUserStore} from '@vben/stores';
 
 import ChatPanel from '#/components/chat-panel/index.vue';
 import HistorySidebar from '#/components/chat-panel/history-sidebar.vue';
 import {useChatHistory} from '#/components/chat-panel/chat-history';
+import {parseDirectQueryUi} from '#/components/chat-panel/direct-query-ui';
 import {
   deleteChatTitleApi,
   generateConversationIdApi,
@@ -20,7 +22,11 @@ import {
   listChatTitlesApi,
   streamChatApi,
 } from '#/api/ai';
-import type {ChatMessage, ChatStreamHandle} from '#/components/chat-panel/types';
+import type {
+  AiUiPayload,
+  ChatMessage,
+  ChatStreamHandle,
+} from '#/components/chat-panel/types';
 import {genId, nowTime} from '#/components/chat-panel/utils';
 
 defineOptions({name: 'BusinessAssistant'});
@@ -38,6 +44,8 @@ const LEGACY_KEY = 'yangchen-business-assistant-v1';
 const DEFAULT_TITLE = '新对话';
 
 const userStore = useUserStore();
+const route = useRoute();
+const tabbarStore = useTabbarStore();
 const {
   conversations,
   activeId,
@@ -46,7 +54,7 @@ const {
   open,
   remove,
   saveActive,
-  replaceConversations,
+  mergeConversations,
 } = useChatHistory(HISTORY_KEY, false);
 
 /* ===== 旧版存储迁移 ===== */
@@ -61,27 +69,49 @@ const {
 })();
 
 const creatingConversation = ref(false);
-const historyLoading = ref(false);
+let historyRequestVersion = 0;
+let contentRequestVersion = 0;
+const loadingConversationId = ref<string | null>(null);
+const conversationLoadError = ref<{
+  conversationId: string;
+  message: string;
+} | null>(null);
 
 function toTimestamp(value?: string) {
   const timestamp = value ? Date.parse(value) : NaN;
   return Number.isFinite(timestamp) ? timestamp : Date.now();
 }
 
-function routeConversationId() {
-  return new URL(window.location.href).searchParams.get('conversationId') ?? undefined;
+/** 会话仅保留在页面状态中，路由只负责定位业务助手页面。 */
+async function keepSingleBusinessAssistantTab() {
+  if (route.meta.fullPathKey !== false) {
+    route.meta.fullPathKey = false;
+  }
+
+  // 只收敛旧版本遗留的重复 Tab；不能在会话路由变化时手动 addTab，
+  // 否则一次切换会话会被识别成一次新开页面，触发组件重建和历史列表闪动。
+  const currentKey = getTabKey(route);
+  const samePageTabs = tabbarStore.tabs.filter(
+    (tab) => tab.name === route.name || tab.path === route.path,
+  );
+  if (samePageTabs.length < 2) return;
+
+  const tabToKeep =
+    [...samePageTabs].reverse().find((tab) => getTabKey(tab) === currentKey) ||
+    samePageTabs[0];
+  tabbarStore.tabs = tabbarStore.tabs.filter(
+    (tab) =>
+      !samePageTabs.includes(tab) ||
+      tab === tabToKeep,
+  );
+  await tabbarStore.updateCacheTabs();
 }
 
-function updateConversationRoute(conversationId?: string) {
+/** 清理旧版本写进地址栏的会话参数，后续不再读写它。 */
+function clearLegacyConversationQuery() {
   const url = new URL(window.location.href);
-  const currentId = url.searchParams.get('conversationId');
-  if (currentId === (conversationId || null)) return;
-  if (conversationId) {
-    url.searchParams.set('conversationId', conversationId);
-  } else {
-    url.searchParams.delete('conversationId');
-  }
-  // 只同步地址，不触发 Vue Router 导航，避免标签页容器重复创建页面。
+  if (!url.searchParams.has('conversationId')) return;
+  url.searchParams.delete('conversationId');
   window.history.replaceState(
     window.history.state,
     '',
@@ -89,48 +119,156 @@ function updateConversationRoute(conversationId?: string) {
   );
 }
 
+/** 旧版响应中已落库的思考块不再展示，只保留最终回答。 */
+function removeLegacyThinking(content: string) {
+  return content
+    .replace(/:::thinking\s*\n[\s\S]*?(?:\n:::\s*|$)/gi, '')
+    .replace(/^\s*\*\*回答\*\*\s*/i, '')
+    .trim();
+}
+
 function toChatMessage(item: {
   id?: string | number;
   messageType: string;
   content: string;
   createTime?: string;
+  type?: string;
+  component?: string;
+  data?: unknown;
+  action?: AiUiPayload['action'];
+  messageId?: string;
+  ui?: Omit<AiUiPayload, 'type'> & {type?: 'ui'};
 }): ChatMessage | null {
   const kind = item.messageType.toLowerCase();
+  if (['reason', 'reasoning', 'thinking'].includes(kind)) return null;
   const role = kind === 'user' || kind === 'human' ? 'user' : 'assistant';
-  if (!item.content?.trim()) return null;
+
+  let ui = item.ui?.component
+    ? {
+        type: 'ui' as const,
+        component: item.ui.component,
+        data: item.ui.data,
+        action: item.ui.action,
+        messageId: item.ui.messageId,
+      }
+    : item.component
+      ? {
+          type: 'ui' as const,
+          component: item.component,
+          data: item.data,
+          action: item.action,
+          messageId: item.messageId,
+        }
+      : null;
+
+  // 兼容历史表只保存 messageType + content 的情况：ui 消息的 content 可以是协议 JSON。
+  if (!ui && (kind === 'ui' || item.type === 'ui') && item.content?.trim()) {
+    try {
+      const parsed = JSON.parse(item.content) as Partial<AiUiPayload>;
+      if (typeof parsed.component === 'string') {
+        ui = {
+          type: 'ui',
+          component: parsed.component,
+          data: parsed.data,
+          action: parsed.action,
+          messageId: parsed.messageId,
+        };
+      }
+    } catch {
+      // 历史内容不是协议 JSON 时按普通文本兜底。
+    }
+  }
+
+  // returnDirect 的旧历史会以统一结果集 JSON 落库；读取时直接还原为业务组件。
+  if (!ui && role === 'assistant') {
+    ui = parseDirectQueryUi(item.content);
+  }
+
+  if (ui) {
+    return {
+      id: String(item.id ?? ui.messageId ?? genId()),
+      role: 'assistant',
+      content: '',
+      time: item.createTime?.slice(11, 16) || nowTime(),
+      type: ui.component,
+      extra: {ui},
+    };
+  }
+
+  const content = role === 'assistant'
+    ? removeLegacyThinking(item.content || '')
+    : item.content?.trim();
+  if (!content) return null;
   return {
     id: String(item.id ?? genId()),
     role,
-    content: item.content,
+    content,
     time: item.createTime?.slice(11, 16) || nowTime(),
   };
 }
 
-async function loadConversationMessages(conversationId: string) {
+const isConversationLoading = computed(
+  () => loadingConversationId.value === active.value?.conversationId,
+);
+const activeConversationLoadError = computed(() => {
+  const error = conversationLoadError.value;
+  if (!error || error.conversationId !== active.value?.conversationId) {
+    return '';
+  }
+  return error.message;
+});
+
+function cancelConversationLoading() {
+  contentRequestVersion += 1;
+  loadingConversationId.value = null;
+  conversationLoadError.value = null;
+}
+
+async function loadConversationMessages(conversationId: string): Promise<boolean> {
   const conversation = conversations.value.find(
     (item) => item.conversationId === conversationId,
   );
-  if (!conversation || conversation.messagesLoaded) return;
+  if (!conversation) return false;
+  if (conversation.messagesLoaded) return true;
+
+  const requestVersion = ++contentRequestVersion;
+  loadingConversationId.value = conversationId;
+  conversationLoadError.value = null;
   try {
     const items = await listChatContentApi(conversationId);
+    // 用户可能已切换到另一段会话，过期请求不能覆盖新会话的数据或状态。
+    if (requestVersion !== contentRequestVersion) return false;
     conversation.messages = items
       .slice()
       .sort((a, b) => toTimestamp(a.createTime) - toTimestamp(b.createTime))
       .map(toChatMessage)
       .filter((item): item is ChatMessage => item !== null);
-  } catch {
-    conversation.messages = [];
-  } finally {
     conversation.messagesLoaded = true;
+    return true;
+  } catch {
+    if (requestVersion === contentRequestVersion) {
+      // 请求失败时不要把它误标记为“已加载的空会话”，下次点击仍可重试。
+      conversation.messagesLoaded = false;
+      conversationLoadError.value = {
+        conversationId,
+        message: '会话内容加载失败，请重试。',
+      };
+    }
+    return false;
+  } finally {
+    if (requestVersion === contentRequestVersion) {
+      loadingConversationId.value = null;
+    }
   }
 }
 
 async function loadHistory() {
   const userId = userStore.userInfo?.userId;
-  if (!userId || historyLoading.value) return;
-  historyLoading.value = true;
+  if (!userId) return;
+  const requestVersion = ++historyRequestVersion;
   try {
     const titles = await listChatTitlesApi(userId);
+    if (requestVersion !== historyRequestVersion) return;
     const mapped = titles.map((item) => {
       const conversationId = String(item.conversationId);
       const existing = conversations.value.find(
@@ -147,45 +285,46 @@ async function loadHistory() {
       };
     });
     if (mapped.length > 0) {
-      replaceConversations(mapped);
-      const selectedId = routeConversationId();
-      const targetId = selectedId && mapped.some((item) => item.id === selectedId)
-        ? selectedId
-        : active.value?.conversationId;
-      if (targetId) {
-        open(targetId);
-        updateConversationRoute(targetId);
-        await loadConversationMessages(targetId);
+      // mergeConversations 会自动把第一条设为 active；因此必须在合并前记录状态，
+      // 否则首次进入会被误认为“已有会话”，只高亮标题却不加载消息。
+      const hadActiveConversation = !!active.value;
+      mergeConversations(mapped);
+      // 标题刷新只更新列表；已有当前会话时绝不重新选中服务端第一条。
+      if (hadActiveConversation) {
+        const current = active.value;
+        if (current?.conversationId && !current.messagesLoaded) {
+          await loadConversationMessages(current.conversationId);
+        }
+        return;
+      }
+      const target = active.value ?? conversations.value[0];
+      if (target?.conversationId) {
+        open(target.id);
+        await loadConversationMessages(target.conversationId);
       }
     } else if (!active.value) {
       await handleNewChat();
-    } else {
-      // 标题生成存在异步延迟，列表暂时为空时必须保留当前会话，不能重新创建。
-      updateConversationRoute(active.value.conversationId);
     }
   } catch {
     // 历史标题接口异常时也保留当前会话，避免页面刷新或重复创建会话。
     if (!active.value) await handleNewChat();
-  } finally {
-    historyLoading.value = false;
   }
 }
 
 /** 创建前端会话并预先申请后端会话 ID。 */
 async function handleNewChat() {
   abortCurrentStream();
+  cancelConversationLoading();
   if (creatingConversation.value) return;
   creatingConversation.value = true;
+  // 先切到本地新会话，再异步申请 ID；任何标题列表响应都不能把它替换掉。
+  const conversation = newChat();
   try {
     const conversationId = await generateConversationIdApi();
-    const conversation = newChat();
     conversation.conversationId = conversationId;
-    updateConversationRoute(conversationId);
   } catch {
     // 后端暂时不可用时仍保留可用的非空请求头，后续请求会给出明确错误。
-    const conversation = newChat();
     conversation.conversationId = genId();
-    updateConversationRoute(conversation.conversationId);
   } finally {
     creatingConversation.value = false;
   }
@@ -235,31 +374,45 @@ function onWindowResize() {
 window.addEventListener('resize', onWindowResize);
 onMounted(() => {
   nextTick(updatePageHeight);
+  clearLegacyConversationQuery();
+  void keepSingleBusinessAssistantTab();
   void loadHistory();
 });
-onActivated(() => nextTick(updatePageHeight));
+onActivated(() => {
+  nextTick(updatePageHeight);
+  void keepSingleBusinessAssistantTab();
+});
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize);
   abortCurrentStream();
+  cancelConversationLoading();
 });
 
 const suggestions = [
   '如何新增一个用户？',
   '怎么给角色分配权限？',
-  '操作日志在哪里查看？',
+  '当前最新的操作日志有哪些？',
   '代码生成怎么用？',
 ];
 
 async function handleSelect(id: string) {
+  const conversation = conversations.value.find((item) => item.id === id);
+  if (!conversation) return;
   abortCurrentStream();
   open(id);
-  const conversation = active.value;
-  updateConversationRoute(conversation?.conversationId || id);
-  await loadConversationMessages(id);
+  await loadConversationMessages(conversation.conversationId || id);
+}
+
+async function retryLoadActiveConversation() {
+  const conversationId = active.value?.conversationId;
+  if (!conversationId) return;
+  // 错误会话的 messagesLoaded 保持 false，因此这里会真正重新请求。
+  await loadConversationMessages(conversationId);
 }
 
 async function handleRemove(id: string) {
   abortCurrentStream();
+  cancelConversationLoading();
   const conversation = conversations.value.find((item) => item.id === id);
   try {
     if (conversation?.conversationId) {
@@ -267,7 +420,6 @@ async function handleRemove(id: string) {
     }
   } finally {
     remove(id);
-    updateConversationRoute(active.value?.conversationId);
   }
 }
 
@@ -290,6 +442,7 @@ async function handleSend(
   text: string,
   onChunk?: (chunk: string) => void,
   signal?: ChatStreamHandle,
+  onUiMessage?: (payload: AiUiPayload) => void,
 ): Promise<string> {
   currentSignal = signal ?? null;
   let controller: AbortController | null = null;
@@ -299,7 +452,13 @@ async function handleSend(
   }
   try {
     const conversationId = await ensureConversationId();
-    const reply = await streamChatApi(text, conversationId, onChunk, controller?.signal);
+    const reply = await streamChatApi(
+      text,
+      conversationId,
+      onChunk,
+      controller?.signal,
+      onUiMessage,
+    );
     // 首轮回答完成后，后端会异步生成标题；重新拉取让历史列表立即显示新标题。
     await loadHistory();
     if (currentSignal === signal) currentSignal = null;
@@ -333,22 +492,39 @@ async function handleSend(
     />
 
     <main class="ba-main">
-      <ChatPanel
-        v-model="messages"
-        variant="page"
-        title="业务助手"
-        badge="业务"
-        subtitle="智能问答 · 随时待命"
-        description="我可以帮你解答系统使用与业务查询问题。试试下面的问题，或直接输入你想问的。"
-        avatar-icon="lucide:briefcase-business"
-        :suggestions="suggestions"
-        :send="handleSend"
-        hint="AI 对话由后端流式接口提供"
-        :autofocus="true"
-        :closable="false"
-        :new-chatable="false"
-        @new-chat="handleNewChat"
-      />
+      <div class="ba-chat-shell">
+        <ChatPanel
+          v-model="messages"
+          variant="page"
+          title="业务助手"
+          badge="业务"
+          subtitle="智能问答 · 随时待命"
+          description="我可以帮你解答系统使用与业务查询问题。试试下面的问题，或直接输入你想问的。"
+          avatar-icon="lucide:briefcase-business"
+          :suggestions="suggestions"
+          :send="handleSend"
+          hint="AI 对话由后端流式接口提供"
+          :autofocus="true"
+          :closable="false"
+          :new-chatable="false"
+          @new-chat="handleNewChat"
+        />
+
+        <div v-if="isConversationLoading" class="ba-conversation-state" role="status">
+          <span class="ba-conversation-state__spinner" />
+          <span>正在加载会话内容…</span>
+        </div>
+        <div v-else-if="activeConversationLoadError" class="ba-conversation-state">
+          <span>{{ activeConversationLoadError }}</span>
+          <button
+            class="ba-conversation-state__retry"
+            type="button"
+            @click="retryLoadActiveConversation"
+          >
+            重新加载
+          </button>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -373,6 +549,54 @@ async function handleSend(
   background:
     radial-gradient(80% 65% at 50% 0%, hsl(var(--primary) / 0.055), transparent 72%),
     linear-gradient(180deg, hsl(var(--background-deep)), hsl(var(--background-deep) / 0.92));
+}
+
+.ba-chat-shell {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+
+.ba-conversation-state {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: hsl(var(--foreground) / 0.7);
+  font-size: 14px;
+  background: hsl(var(--background-deep) / 0.56);
+  backdrop-filter: blur(2px);
+}
+
+.ba-conversation-state__spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid hsl(var(--primary) / 0.2);
+  border-top-color: hsl(var(--primary));
+  border-radius: 50%;
+  animation: ba-spin 0.8s linear infinite;
+}
+
+.ba-conversation-state__retry {
+  padding: 5px 10px;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--primary) / 0.3);
+  border-radius: 6px;
+}
+
+.ba-conversation-state__retry:hover {
+  background: hsl(var(--primary) / 0.08);
+}
+
+@keyframes ba-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 </style>

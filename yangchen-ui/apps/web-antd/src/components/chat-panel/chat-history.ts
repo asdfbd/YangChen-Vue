@@ -167,6 +167,62 @@ export function useChatHistory(storageKey: string, persistMessages = true) {
   }
 
   /**
+   * 将服务端标题列表合并到当前会话。
+   *
+   * 同一个会话保留已有消息和加载状态；默认保留本地尚未出现在标题接口中的会话，
+   * 用于首轮消息已发送、异步标题仍未生成的时间窗口，避免侧栏闪烁和 active 会话跳转。
+   */
+  function mergeConversations(
+    next: ChatHistoryConversation[],
+    options: {retainMissing?: boolean} = {},
+  ) {
+    const retainMissing = options.retainMissing ?? true;
+    const current = state.value.conversations;
+    const currentByConversationId = new Map(
+      current
+        .filter((conversation) => conversation.conversationId)
+        .map((conversation) => [conversation.conversationId!, conversation]),
+    );
+    const remoteIds = new Set(
+      next
+        .map((conversation) => conversation.conversationId)
+        .filter((conversationId): conversationId is string => !!conversationId),
+    );
+
+    const merged = next.map((incoming) => {
+      const existing = incoming.conversationId
+        ? currentByConversationId.get(incoming.conversationId)
+        : undefined;
+      if (!existing) return {...incoming};
+
+      existing.conversationId = incoming.conversationId;
+      existing.title = incoming.title || existing.title || DEFAULT_TITLE;
+      existing.createdAt = incoming.createdAt;
+      existing.updatedAt = incoming.updatedAt;
+      return existing;
+    });
+
+    if (retainMissing) {
+      current.forEach((conversation) => {
+        if (
+          !conversation.conversationId ||
+          !remoteIds.has(conversation.conversationId)
+        ) {
+          merged.push(conversation);
+        }
+      });
+    }
+
+    merged.sort((a, b) => b.updatedAt - a.updatedAt);
+    // 原地替换，渲染层不会经历“先清空、再插入”的瞬间状态。
+    current.splice(0, current.length, ...merged);
+
+    if (!state.value.activeId && current[0]) {
+      state.value.activeId = current[0].id;
+    }
+  }
+
+  /**
    * 导入一段既有消息（旧版单会话存储迁移用）；
    * 仅当历史为空时生效，导入后自动置为当前会话。
    */
@@ -206,6 +262,7 @@ export function useChatHistory(storageKey: string, persistMessages = true) {
     remove,
     saveActive,
     replaceConversations,
+    mergeConversations,
     importLegacy,
   };
 }

@@ -2,8 +2,15 @@
 import {IconifyIcon} from '@vben/icons';
 
 import ChatMessageText from './message-text.vue';
+import ConfirmCard from './renderers/confirm-card.vue';
+import DataTable from './renderers/data-table.vue';
+import DetailCard from './renderers/detail-card.vue';
+import DynamicForm from './renderers/dynamic-form.vue';
+import ErrorCard from './renderers/error-card.vue';
+import ResultCard from './renderers/result-card.vue';
+import StatCard from './renderers/stat-card.vue';
 
-import type {ChatMessage, ChatRendererMap} from './types';
+import type {ChatMessage, ChatRendererMap, ChatUiAction} from './types';
 
 defineOptions({name: 'ChatMessageList'});
 
@@ -32,13 +39,27 @@ const props = withDefaults(
   },
 );
 
+const emit = defineEmits<{
+  'ui-action': [payload: ChatUiAction];
+}>();
+
+const builtInRenderers: ChatRendererMap = {
+  detail: DetailCard,
+  table: DataTable,
+  stat: StatCard,
+  confirm: ConfirmCard,
+  form: DynamicForm,
+  result: ResultCard,
+  error: ErrorCard,
+};
+
 /** 自定义渲染器是否命中该消息类型 */
 function hasRenderer(msg: ChatMessage): boolean {
-  return Boolean(msg.type && props.renderers[msg.type]);
+  return Boolean(msg.type && (props.renderers[msg.type] || builtInRenderers[msg.type]));
 }
 
 function rendererFor(msg: ChatMessage) {
-  return (msg.type && props.renderers[msg.type]) || ChatMessageText;
+  return (msg.type && (props.renderers[msg.type] || builtInRenderers[msg.type])) || ChatMessageText;
 }
 
 /** 默认文本渲染器：流式消息附带光标指示（自定义渲染器不传，避免多余属性） */
@@ -46,6 +67,13 @@ function textRendererProps(msg: ChatMessage) {
   return rendererFor(msg) === ChatMessageText
     ? {message: msg, streaming: msg.id === props.streamingId}
     : {message: msg};
+}
+
+function handleUiAction(
+  message: ChatMessage,
+  payload: Omit<ChatUiAction, 'message'>,
+) {
+  emit('ui-action', {...payload, message});
 }
 </script>
 
@@ -62,7 +90,11 @@ function textRendererProps(msg: ChatMessage) {
             <IconifyIcon :icon="avatarIcon"/>
           </span>
           <div :class="['cml-body', {'cml-body--wide': hasRenderer(msg)}]">
-            <component :is="rendererFor(msg)" v-bind="textRendererProps(msg)"/>
+            <component
+              :is="rendererFor(msg)"
+              v-bind="textRendererProps(msg)"
+              @ui-action="handleUiAction(msg, $event)"
+            />
             <span class="cml-time">{{ msg.time }}</span>
           </div>
         </template>

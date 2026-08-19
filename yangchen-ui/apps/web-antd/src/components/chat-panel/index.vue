@@ -7,7 +7,14 @@ import ChatComposer from './composer.vue';
 import ChatMessageList from './message-list.vue';
 import {genId, nowTime} from './utils';
 
-import type {ChatMessage, ChatRendererMap, ChatSendHandler, ChatStreamHandle} from './types';
+import type {
+  AiUiPayload,
+  ChatMessage,
+  ChatRendererMap,
+  ChatSendHandler,
+  ChatStreamHandle,
+  ChatUiAction,
+} from './types';
 
 defineOptions({name: 'ChatPanel'});
 
@@ -101,6 +108,8 @@ const emit = defineEmits<{
   close: [];
   /** 点击"停止生成" / 流式被中止 */
   stop: [];
+  /** 业务 UI 组件触发的确认、提交等操作，由页面宿主接管 */
+  'ui-action': [payload: ChatUiAction];
 }>();
 
 const messages = computed(() => props.modelValue);
@@ -117,6 +126,7 @@ interface StreamSession {
   assistantId: string;
   streamed: boolean;
   streamedContent: string;
+  uiMessages: ChatMessage[];
   buffer: string;
   scheduled: boolean;
 }
@@ -202,16 +212,22 @@ function flushStreamChunks() {
   session.streamedContent += session.buffer;
   session.buffer = '';
   streamingId.value = session.assistantId;
-  emit('update:modelValue', [
-    ...session.baseMessages,
-    {
+  emitStreamMessages(session);
+  scrollToBottom();
+}
+
+function emitStreamMessages(session: StreamSession) {
+  const nextMessages = [...session.baseMessages];
+  if (session.streamedContent) {
+    nextMessages.push({
       id: session.assistantId,
       role: 'assistant',
       content: session.streamedContent,
       time: nowTime(),
-    },
-  ]);
-  scrollToBottom();
+    });
+  }
+  nextMessages.push(...session.uiMessages);
+  emit('update:modelValue', nextMessages);
 }
 
 function scheduleFlush() {
@@ -298,6 +314,7 @@ async function submit(text: string) {
     assistantId,
     streamed: false,
     streamedContent: '',
+    uiMessages: [],
     buffer: '',
     scheduled: false,
   };
@@ -313,12 +330,38 @@ async function submit(text: string) {
     scheduleFlush();
   };
 
-  const result = handler(content, onChunk, signal);
+  const onUiMessage = (payload: AiUiPayload) => {
+    if (!streamSession || streamSession.assistantId !== assistantId) return;
+    if (payload.replaceText) {
+      streamSession.buffer = '';
+      streamSession.streamed = false;
+      streamSession.streamedContent = '';
+      streamingId.value = null;
+    }
+    streamSession.uiMessages.push({
+      id: payload.messageId || genId(),
+      role: 'assistant',
+      content: '',
+      time: nowTime(),
+      type: payload.component,
+      extra: {ui: payload},
+    });
+    emitStreamMessages(streamSession);
+    scrollToBottom();
+  };
+
+  const result = handler(content, onChunk, signal, onUiMessage);
   if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
     pending.value = true;
     try {
       const reply = await result;
-      if (typeof reply === 'string' && reply && !aborted && !streamSession?.streamed) {
+      if (
+        typeof reply === 'string' &&
+        reply &&
+        !aborted &&
+        !streamSession?.streamed &&
+        streamSession?.uiMessages.length === 0
+      ) {
         pushMessage('assistant', reply);
       }
     } finally {
@@ -449,6 +492,7 @@ watch(showHero, (val) => {
               :avatar-icon="avatarIcon"
               :renderers="renderers"
               variant="page"
+              @ui-action="emit('ui-action', $event)"
             />
           </div>
           <div class="cp-dock">
@@ -521,6 +565,7 @@ watch(showHero, (val) => {
           :avatar-icon="avatarIcon"
           :renderers="renderers"
           variant="panel"
+          @ui-action="emit('ui-action', $event)"
         />
 
         <!-- 开场引导：对话刚开始时展示快捷提问卡片 -->
