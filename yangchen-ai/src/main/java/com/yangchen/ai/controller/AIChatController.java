@@ -3,6 +3,7 @@ package com.yangchen.ai.controller;
 
 import cn.hutool.core.util.IdUtil;
 import com.yangchen.ai.context.AIContext;
+import com.yangchen.ai.context.ToolApprovalRegistry;
 import com.yangchen.ai.context.ToolInvocationContext;
 import com.yangchen.ai.context.ToolProgressRegistry;
 import com.yangchen.ai.entity.AIChatContent;
@@ -36,6 +37,7 @@ public class AIChatController {
     private final AIChatContentService aiChatContentService;
     private final ToolCallbackResolver toolCallbackResolver;
     private final ToolProgressRegistry toolProgressRegistry;
+    private final ToolApprovalRegistry toolApprovalRegistry;
 
     @PostMapping("/")
     @Operation(summary = "AI常规对话")
@@ -89,7 +91,10 @@ public class AIChatController {
         // 进度通道是手动完成的 Sink。聊天主流结束或浏览器取消时先解绑，避免 merge
         // 等待一个永不结束的事件流，导致前端一直停留在“停止生成”状态。
         return Flux.merge(
-                chatFlux.doFinally(signal -> toolProgressRegistry.unbind(conversationId)),
+                chatFlux.doFinally(signal -> {
+                    toolApprovalRegistry.clearActive(approvalId);
+                    toolProgressRegistry.unbind(conversationId);
+                }),
                 toolProgressRegistry.fluxOf(conversationId));
     }
 

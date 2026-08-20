@@ -18,10 +18,18 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @Slf4j
 public class CustomToolCallingManager implements ToolCallingManager {
+
+    /**
+     * 这些工具只读取表目录/字段，或只展示澄清组件；它们是查询的内部准备步骤，
+     * 不应打断用户去反复确认。真正读取业务数据的 executeReadOnlySql* 才需要确认。
+     */
+    private static final Set<String> INTERNAL_PREPARATION_TOOLS = Set.of(
+            "getDatabaseSchema", "askUserChoice");
 
     private final ToolCallingManager delegate = DefaultToolCallingManager.builder().build();
     private final ToolApprovalRegistry approvalRegistry;
@@ -53,15 +61,21 @@ public class CustomToolCallingManager implements ToolCallingManager {
 
         List<AssistantMessage.ToolCall> calls = assistantMessage.getToolCalls();
         String conversationId = ToolInvocationContext.conversationId();
-        if (approvalRegistry.consumeIfMatches(
-                ToolInvocationContext.approvalId(), conversationId, calls)) {
+        if (!requiresUserApproval(calls)) {
+            return delegate.executeToolCalls(prompt, chatResponse);
+        }
+        String approvalId = ToolInvocationContext.approvalId();
+        boolean alreadyActive = approvalRegistry.isActive(approvalId, conversationId);
+        boolean justActivated = !alreadyActive
+                && approvalRegistry.activateForCurrentConversation(approvalId, conversationId);
+        if (alreadyActive || justActivated) {
             log.info("工具确认通过，开始执行：{}", calls.stream()
                     .map(AssistantMessage.ToolCall::name)
                     .toList());
             return delegate.executeToolCalls(prompt, chatResponse);
         }
 
-        ToolApprovalRegistry.PendingApproval approval = approvalRegistry.create(conversationId, calls);
+        ToolApprovalRegistry.PendingApproval approval = approvalRegistry.create(conversationId);
         emitConfirmationCard(conversationId, approval, calls);
 
         List<ToolResponseMessage.ToolResponse> responses = calls
@@ -72,10 +86,9 @@ public class CustomToolCallingManager implements ToolCallingManager {
                         """
                         {
                           "status": "CONFIRMATION_REQUIRED",
-                          "approvalId": "%s",
-                          "message": "该操作尚未获得用户确认，禁止执行。请向用户说明影响并请求确认。"
+                          "message": "确认卡片已由系统展示。立即停止工具调用，不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
                         }
-                        """.formatted(approval.getApprovalId())
+                        """
                 ))
                 .toList();
 
@@ -92,6 +105,10 @@ public class CustomToolCallingManager implements ToolCallingManager {
                 .conversationHistory(conversationHistory)
                 .returnDirect(false)
                 .build();
+    }
+
+    private boolean requiresUserApproval(List<AssistantMessage.ToolCall> calls) {
+        return calls.stream().anyMatch(call -> !INTERNAL_PREPARATION_TOOLS.contains(call.name()));
     }
 
     /** 确认卡片走独立 UI 事件通道，绝不插入 assistant/tool 协议消息。 */
