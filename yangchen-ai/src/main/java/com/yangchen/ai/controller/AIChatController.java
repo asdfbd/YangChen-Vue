@@ -11,16 +11,19 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @Tag(name = "AI对话管理")
 @RequestMapping("/ai/chat")
@@ -40,6 +43,13 @@ public class AIChatController {
                 .user(userInput)
                 .stream()
                 .chatResponse()
+                .doOnError(ex -> {
+                    if (ex instanceof WebClientResponseException wcre) {
+                        log.error("DeepSeek 返回 HTTP {}，响应体：{}", wcre.getStatusCode(), wcre.getResponseBodyAsString());
+                    } else {
+                        log.error("AI 对话流异常", ex);
+                    }
+                })
                 .flatMap(resp -> {
                     if (resp == null) {
                         return Flux.empty();
@@ -72,7 +82,7 @@ public class AIChatController {
             @Parameter(name = "conversationId", description = "对话id")
     })
     public R<List<AIChatContent>> list(@PathVariable Long conversationId) {
-        return R.ok(aiChatContentService.listByConversationId(conversationId));
+        return R.ok(aiChatContentService.listByConversationId(conversationId, false));
     }
 
 

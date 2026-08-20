@@ -39,12 +39,16 @@ public class AIChatContentServiceImpl implements AIChatContentService {
     }
 
     @Override
-    public List<AIChatContent> listByConversationId(Long conversationId) {
+    public List<AIChatContent> listByConversationId(Long conversationId, boolean toolFlag) {
         if (Objects.isNull(conversationId)) {
             throw new ServiceException("对话Id为空！");
         }
         LambdaQueryWrapper<AIChatContent> wrapper = Wrappers.lambdaQuery(AIChatContent.class)
-                .eq(AIChatContent::getConversationId, conversationId);
+                .eq(AIChatContent::getConversationId, conversationId)
+                .orderByAsc(AIChatContent::getId);
+        if (!toolFlag) {
+            wrapper.isNotNull(AIChatContent::getContent);
+        }
         return aIChatContentMapper.selectList(wrapper);
     }
 

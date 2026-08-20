@@ -64,6 +64,10 @@ public class AIChatContent implements Serializable {
     @TableField("mate_data")
     private String mateData;
 
+    @Schema(description = "工具调用信息")
+    @Excel(name = "工具调用消息")
+    @TableField("tool_calls")
+    private String toolCalls;
 
     /**
      * 创建时间
@@ -72,7 +76,6 @@ public class AIChatContent implements Serializable {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
-
 
     /**
      * 搜索值

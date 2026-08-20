@@ -13,7 +13,7 @@ import java.util.List;
 public interface AIChatContentService {
     List<AIChatContent> listAll();
 
-    List<AIChatContent> listByConversationId(Long conversationId);
+    List<AIChatContent> listByConversationId(Long conversationId, boolean toolFlag);
 
     /**
      * 批量新增或修改AI对话内容（主键存在则修改，不存在则新增）
