@@ -12,6 +12,7 @@ import org.springframework.ai.chat.messages.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,6 +48,9 @@ public class CustomMemoryRepository implements ChatMemoryRepository {
                     String content = e.getContent();
                     String messageType = e.getMessageType();
                     Map<String, Object> mateMap = JsonUtils.parseObject(e.getMateData());
+                    if (Objects.isNull(mateMap)) {
+                        mateMap = new HashMap<>();
+                    }
                     mateMap.put(RECORD_ID, e.getId());
                     if (Objects.equals(messageType, MessageType.USER.getValue())) {
                         return UserMessage.builder()
