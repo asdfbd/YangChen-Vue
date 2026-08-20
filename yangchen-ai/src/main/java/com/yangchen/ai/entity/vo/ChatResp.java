@@ -13,4 +13,14 @@ public class ChatResp {
     private String text;
     @Schema(description = "角色")
     private String role;
+    @Schema(description = "消息类型：text、event 或 ui")
+    private String type;
+    @Schema(description = "UI 组件名称")
+    private String component;
+    @Schema(description = "UI 组件数据")
+    private Object data;
+    @Schema(description = "UI 组件动作")
+    private Object action;
+    @Schema(description = "UI 消息 ID")
+    private String messageId;
 }

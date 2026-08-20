@@ -2,6 +2,9 @@ package com.yangchen.ai.controller;
 
 
 import cn.hutool.core.util.IdUtil;
+import com.yangchen.ai.context.AIContext;
+import com.yangchen.ai.context.ToolInvocationContext;
+import com.yangchen.ai.context.ToolProgressRegistry;
 import com.yangchen.ai.entity.AIChatContent;
 import com.yangchen.ai.entity.vo.ChatResp;
 import com.yangchen.ai.service.AIChatContentService;
@@ -32,14 +35,20 @@ public class AIChatController {
     private final ChatClient chatClient;
     private final AIChatContentService aiChatContentService;
     private final ToolCallbackResolver toolCallbackResolver;
+    private final ToolProgressRegistry toolProgressRegistry;
 
     @PostMapping("/")
     @Operation(summary = "AI常规对话")
     @Parameters({
             @Parameter(name = "userInput", description = "用户输入")
     })
-    public Flux<ChatResp> chat(@RequestBody String userInput) {
-        return chatClient.prompt()
+    public Flux<ChatResp> chat(
+            @RequestBody String userInput,
+            @RequestHeader(value = AIContext.DEFAULT_HEADER_TOOL_APPROVAL_ID, required = false) String approvalId) {
+        String conversationId = AIContext.getConversationId();
+        toolProgressRegistry.bind(conversationId);
+
+        Flux<ChatResp> chatFlux = chatClient.prompt()
                 .user(userInput)
                 .stream()
                 .chatResponse()
@@ -54,10 +63,10 @@ public class AIChatController {
                     if (resp == null) {
                         return Flux.empty();
                     }
-                    ChatResp chatResp = new ChatResp();
-                    chatResp.setRole("assistant");
-
                     Generation result = resp.getResult();
+                    if (result == null || result.getOutput() == null) {
+                        return Flux.empty();
+                    }
                     AssistantMessage message = result.getOutput();
                     String text = message.getText();
                     // 不向前端透出模型思考过程，只流式返回最终回答。
@@ -65,9 +74,23 @@ public class AIChatController {
                         return Flux.empty();
                     }
 
+                    ChatResp chatResp = new ChatResp();
+                    chatResp.setRole("assistant");
                     chatResp.setText(text);
                     return Flux.just(chatResp);
-                });
+                })
+                // ToolCallAdvisor 在 boundedElastic 上执行工具循环；确认令牌必须通过
+                // Reactor Context 传递，不能依赖 Web 请求线程的 ThreadLocal。
+                .contextWrite(context -> StringUtils.isBlank(approvalId)
+                        ? context.put(ToolInvocationContext.CONVERSATION_ID_KEY, conversationId)
+                        : context.put(ToolInvocationContext.CONVERSATION_ID_KEY, conversationId)
+                        .put(ToolInvocationContext.APPROVAL_ID_KEY, approvalId));
+
+        // 进度通道是手动完成的 Sink。聊天主流结束或浏览器取消时先解绑，避免 merge
+        // 等待一个永不结束的事件流，导致前端一直停留在“停止生成”状态。
+        return Flux.merge(
+                chatFlux.doFinally(signal -> toolProgressRegistry.unbind(conversationId)),
+                toolProgressRegistry.fluxOf(conversationId));
     }
 
     @Operation(summary = "获取对话ID")

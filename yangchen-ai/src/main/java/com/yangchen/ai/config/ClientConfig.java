@@ -1,6 +1,7 @@
 package com.yangchen.ai.config;
 
 import com.yangchen.ai.advisor.AutoConversationAdvisor;
+import com.yangchen.ai.advisor.CustomToolCallingManager;
 import com.yangchen.ai.memory.CustomMemoryRepository;
 import com.yangchen.ai.tool.CommonTool;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class ClientConfig {
     private final AutoConversationAdvisor autoConversationAdvisor;
     private final CustomMemoryRepository customMemoryRepository;
     private final CommonTool commonTool;
+    private final CustomToolCallingManager customToolCallingManager;
 
     @Bean
     @Primary
@@ -56,6 +58,7 @@ public class ClientConfig {
                         - 涉及风险操作：说明风险并要求用户确认，但不要执行写操作。
                         """)
                 .defaultAdvisors(ToolCallAdvisor.builder()
+                        .toolCallingManager(customToolCallingManager)
                         .advisorOrder(Ordered.HIGHEST_PRECEDENCE + 300)
                         .build())
                 .defaultAdvisors(new SimpleLoggerAdvisor())

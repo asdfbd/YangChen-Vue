@@ -6,6 +6,7 @@ package com.yangchen.ai.context;
 public class AIContext {
     private static final ThreadLocal<String> CONVERSATION_ID_HOLDER = new ThreadLocal<>();
     public static final String DEFAULT_HEADER_CONVERSATION_ID = "x-conversation-id";
+    public static final String DEFAULT_HEADER_TOOL_APPROVAL_ID = "x-tool-approval-id";
 
     public static void setConversationId(String conversationId) {
         CONVERSATION_ID_HOLDER.set(conversationId);
