@@ -14,7 +14,10 @@ import {getTabKey, useTabbarStore, useUserStore} from '@vben/stores';
 import ChatPanel from '#/components/chat-panel/index.vue';
 import HistorySidebar from '#/components/chat-panel/history-sidebar.vue';
 import {useChatHistory} from '#/components/chat-panel/chat-history';
-import {parseDirectQueryUi} from '#/components/chat-panel/direct-query-ui';
+import {
+  extractDirectQueryPrefix,
+  parseDirectQueryUi,
+} from '#/components/chat-panel/direct-query-ui';
 import {
   deleteChatTitleApi,
   generateConversationIdApi,
@@ -131,7 +134,7 @@ function removeLegacyThinking(content: string) {
     .trim();
 }
 
-function toChatMessage(item: {
+function toChatMessages(item: {
   id?: string | number;
   messageType: string;
   content: string;
@@ -142,12 +145,14 @@ function toChatMessage(item: {
   action?: AiUiPayload['action'];
   messageId?: string;
   ui?: Omit<AiUiPayload, 'type'> & {type?: 'ui'};
-}): ChatMessage | null {
+}): ChatMessage[] {
   const kind = item.messageType.toLowerCase();
-  if (['reason', 'reasoning', 'thinking'].includes(kind)) return null;
+  if (['reason', 'reasoning', 'thinking'].includes(kind)) return [];
   const role = kind === 'user' || kind === 'human' ? 'user' : 'assistant';
+  const time = item.createTime?.slice(11, 16) || nowTime();
+  const messageId = String(item.id ?? genId());
 
-  let ui = item.ui?.component
+  let ui: AiUiPayload | null = item.ui?.component
     ? {
         type: 'ui' as const,
         component: item.ui.component,
@@ -184,31 +189,52 @@ function toChatMessage(item: {
   }
 
   // returnDirect 的旧历史会以统一结果集 JSON 落库；读取时直接还原为业务组件。
+  let directResultUi = false;
   if (!ui && role === 'assistant') {
     ui = parseDirectQueryUi(item.content);
+    directResultUi = Boolean(ui);
   }
 
   if (ui) {
-    return {
-      id: String(item.id ?? ui.messageId ?? genId()),
+    const resultMessage: ChatMessage = {
+      id: directResultUi
+        ? `${messageId}:result`
+        : String(item.id ?? ui.messageId ?? genId()),
       role: 'assistant',
       content: '',
-      time: item.createTime?.slice(11, 16) || nowTime(),
+      time,
       type: ui.component,
       extra: {ui},
     };
+
+    // 旧记录把模型说明和 returnDirect JSON 存在同一字段。拆成两条前端消息，
+    // 才能同时显示“我正在查询……”这类说明和下面的查询结果组件。
+    const prefix = directResultUi
+      ? removeLegacyThinking(extractDirectQueryPrefix(item.content))
+      : '';
+    return prefix
+      ? [
+          {
+            id: messageId,
+            role: 'assistant',
+            content: prefix,
+            time,
+          },
+          resultMessage,
+        ]
+      : [resultMessage];
   }
 
   const content = role === 'assistant'
     ? removeLegacyThinking(item.content || '')
     : item.content?.trim();
-  if (!content) return null;
-  return {
-    id: String(item.id ?? genId()),
+  if (!content) return [];
+  return [{
+    id: messageId,
     role,
     content,
-    time: item.createTime?.slice(11, 16) || nowTime(),
-  };
+    time,
+  }];
 }
 
 const isConversationLoading = computed(
@@ -246,8 +272,7 @@ async function loadConversationMessages(conversationId: string): Promise<boolean
     conversation.messages = items
       .slice()
       .sort((a, b) => toTimestamp(a.createTime) - toTimestamp(b.createTime))
-      .map(toChatMessage)
-      .filter((item): item is ChatMessage => item !== null);
+      .flatMap(toChatMessages);
     conversation.messagesLoaded = true;
     return true;
   } catch {
@@ -460,16 +485,17 @@ async function handleRemove(id: string) {
 
 /** 选择器选中后直接复用 ChatPanel 的标准发送链路。 */
 function handleUiAction(payload: ChatUiAction) {
-  const choiceValue = payload.values?.choiceValue;
+  const submittedValue =
+    payload.values?.choiceValue ?? payload.values?.inputValue;
   if (
     payload.message.type !== 'select' ||
     payload.action !== 'submit' ||
-    typeof choiceValue !== 'string' ||
-    !choiceValue.trim()
+    typeof submittedValue !== 'string' ||
+    !submittedValue.trim()
   ) {
     return;
   }
-  void chatPanelRef.value?.sendText(choiceValue);
+  void chatPanelRef.value?.sendText(submittedValue);
 }
 
 /** 当前在途的流式中止句柄（切换会话 / 卸载时主动停止，防止增量写入错误的会话） */

@@ -8,8 +8,8 @@ interface QueryColumn {
 }
 
 interface ReadOnlyQueryResult {
-  columns?: QueryColumn[];
-  rows?: unknown[][];
+  columns: QueryColumn[];
+  rows: unknown[][];
   rowCount?: unknown;
 }
 
@@ -27,7 +27,7 @@ interface UserChoiceOption {
 
 interface UserChoiceResult {
   component?: unknown;
-  options?: UserChoiceOption[];
+  options: UserChoiceOption[];
   placeholder?: unknown;
   question?: unknown;
   type?: unknown;
@@ -53,7 +53,7 @@ export function parseDirectQueryUi(content?: string): AiUiPayload | null {
         title: '查询未完成',
         message: safeMessage(envelope.msg) || '查询暂时无法完成，请稍后重试。',
       },
-      replaceText: true,
+      replaceText: false,
     };
   }
 
@@ -89,21 +89,23 @@ export function parseDirectQueryUi(content?: string): AiUiPayload | null {
         title: '查询结果',
         message: '暂无符合条件的数据',
       },
-      replaceText: true,
+      replaceText: false,
     };
   }
 
   if (columns.length === 1 && rows.length === 1) {
     const column = columns[0];
+    const row = rows[0];
+    if (!column || !row) return null;
     return {
       type: 'ui',
       component: 'stat',
       data: {
         title: '查询结果',
         label: statisticLabel(column.title),
-        value: rows[0][column.key],
+        value: row[column.key],
       },
-      replaceText: true,
+      replaceText: false,
     };
   }
 
@@ -115,8 +117,22 @@ export function parseDirectQueryUi(content?: string): AiUiPayload | null {
       columns,
       rows,
     },
-    replaceText: true,
+    replaceText: false,
   };
+}
+
+/**
+ * 读取 returnDirect 结果前由模型生成的说明文字。
+ *
+ * 直接结果会以“说明文字 + JSON 结果集”的形式落库。历史回放时，说明文字
+ * 需要作为普通 assistant 消息展示，JSON 则交给业务组件渲染。
+ */
+export function extractDirectQueryPrefix(content?: string): string {
+  if (!content) return '';
+
+  // 同时兼容正常 JSON 与被模型额外转义一层的 JSON。
+  const match = /\{\s*\\?"(?:msg|code)"\s*:/.exec(content);
+  return match ? content.slice(0, match.index).trim() : '';
 }
 
 /** 查找一段嵌在普通文本中的完整 JSON 对象。 */

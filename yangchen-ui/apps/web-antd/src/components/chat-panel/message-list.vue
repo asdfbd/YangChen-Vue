@@ -69,8 +69,28 @@ function textRendererProps(msg: ChatMessage) {
   return rendererFor(msg) === ChatMessageText
     ? {message: msg, streaming: msg.id === props.streamingId}
     : rendererFor(msg) === ChoiceCard
-      ? {message: msg, disabled: props.busy}
+      ? {
+          message: msg,
+          disabled: props.busy,
+          submittedText: submittedTextFor(msg),
+        }
     : {message: msg};
+}
+
+/**
+ * 澄清卡片不另存状态：其后的首条 user 消息就是用户的选择或自由补充。
+ * 一旦遇到新的 assistant 消息，表示本轮已结束，不能把更晚的用户输入误归属给旧卡片。
+ */
+function submittedTextFor(message: ChatMessage) {
+  const index = props.messages.findIndex((item) => item.id === message.id);
+  if (index < 0) return '';
+  for (let cursor = index + 1; cursor < props.messages.length; cursor += 1) {
+    const next = props.messages[cursor];
+    if (!next) continue;
+    if (next.role === 'user') return next.content.trim();
+    if (next.role === 'assistant') return '';
+  }
+  return '';
 }
 
 function handleUiAction(
