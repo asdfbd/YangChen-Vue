@@ -89,7 +89,7 @@ public class CustomToolCallingManager implements ToolCallingManager {
                         """
                                 {
                                   "status": "CONFIRMATION_REQUIRED",
-                                   "message": "该操作尚未获得用户确认，禁止执行。请向用户说明影响并请求确认。不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
+                                   "message": "该操作已进入待确认状态，当前禁止执行。你可以用一句自然的中文话告知用户：请在页面的确认卡片中点击确认后才能完成（或取消后重新说明）。除此之外不要输出工具名、参数、批准编号或内部执行过程。"
                                 }
                                 """
                 ))

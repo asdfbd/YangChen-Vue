@@ -32,11 +32,12 @@ public class ToolApprovalRegistry {
     }
 
     /**
-     * 激活一次确认，并把授权限定在当前 HTTP 对话流内。
+     * 校验并消费一次用户确认（一次性）。
      *
-     * <p>一次“查询用户列表”通常会连续调用表目录、表字段、数据查询多个工具。若第一个
-     * 工具调用后立刻删除令牌，后续工具又会被判定为未确认，从而不停弹确认框。因此首个
-     * 调用校验通过后将令牌标记为 active；控制器在本次流结束时立即清除 active 标记。</p>
+     * <p>确认令牌只能被消费一次：本方法校验通过后立即删除 Redis 中的令牌与 used 标记，
+     * 任何后续请求即使带上同一个 approvalId 也无法再次通过确认，必须重新弹出确认卡片。
+     * 这样保证“每一次写操作都由一次真实的卡片确认驱动”，避免令牌跨轮复用导致
+     * 未弹确认卡却被直接执行。</p>
      */
     public boolean activateForCurrentConversation(String approvalId, String conversationId) {
         if (approvalId == null || approvalId.isBlank()) {
@@ -55,13 +56,16 @@ public class ToolApprovalRegistry {
         if (!matches) {
             return false;
         }
-        redisCache.setCacheObject(activeKey(approvalId), conversationId, TTL_MINUTES, TimeUnit.MINUTES);
+        // 一次性确认：激活后立即清理所有令牌，杜绝同一个 approvalId 在 1 分钟窗口内
+        // 被后续请求复用放行（否则会出现“本次没弹确认卡却被直接执行”）。
         redisCache.deleteObject(key(approvalId));
+        redisCache.deleteObject(key(approvalId) + USED_KEY_SUFFIX);
         return true;
     }
 
     /**
-     * 当前对话流已经通过首个工具的确认，允许其后续工具继续执行。
+     * 兼容旧调用：确认已消费后 active 标记不存在，恒返回 false。
+     * 现在每次写操作都必须重新确认，不再支持“一次确认多次放行”。
      */
     public boolean isActive(String approvalId, String conversationId) {
         if (approvalId == null || approvalId.isBlank()) {

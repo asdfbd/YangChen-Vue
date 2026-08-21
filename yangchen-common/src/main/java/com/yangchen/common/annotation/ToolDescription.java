@@ -6,15 +6,15 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * AI调用tool时，需要用户确认
+ * 也可以用于大模型自动选择tool
  */
-@Target(ElementType.METHOD)
+@Target({ElementType.METHOD, ElementType.TYPE})
 @Retention(RetentionPolicy.RUNTIME)
-public @interface ToolConfirm {
-
+public @interface ToolDescription {
     /**
-     * 描述主要用于前端展示
+     * 工具描述
+     *
      * @return
      */
-    String description() default "";
+    String value();
 }

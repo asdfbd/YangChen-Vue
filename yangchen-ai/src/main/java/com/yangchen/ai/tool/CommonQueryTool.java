@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  * SQL 工具只允许单条 SELECT/WITH 语句，真正的生产安全边界仍然应由数据库只读账号保证。</p>
  */
 @Service
-public class CommonTool {
+public class CommonQueryTool {
 
     private static final int MAX_TABLE_COUNT = 200;
     private static final int MAX_ROW_COUNT = 200;
@@ -51,7 +51,7 @@ public class CommonTool {
 
     private final JdbcTemplate jdbcTemplate;
 
-    public CommonTool(DataSource dataSource) {
+    public CommonQueryTool(DataSource dataSource) {
         this.jdbcTemplate = new JdbcTemplate(dataSource);
     }
 

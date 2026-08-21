@@ -1,7 +1,9 @@
 package com.yangchen.ai.context;
 
 import cn.hutool.core.annotation.AnnotationUtil;
+import cn.hutool.core.collection.ListUtil;
 import cn.hutool.core.util.ReflectUtil;
+import com.yangchen.ai.entity.vo.ToolConfirmDesc;
 import com.yangchen.common.annotation.ToolConfirm;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -14,17 +16,14 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
 public class ToolMethodRegistry implements ApplicationContextAware, SmartInitializingSingleton {
     private final Map<String, Method> toolMethods = new ConcurrentHashMap<>();
-    private final Map<String, Method> toolConfirmMethods = new ConcurrentHashMap<>();
+    private final Map<String, ToolConfirmDesc> toolConfirmMethods = new ConcurrentHashMap<>();
     private ApplicationContext context;
 
     @Override
@@ -55,7 +54,12 @@ public class ToolMethodRegistry implements ApplicationContextAware, SmartInitial
                     toolMethods.put(name, method);
                     continue;
                 }
-                toolConfirmMethods.put(name, method);
+                ToolConfirm confirm = AnnotationUtil.getAnnotation(method, ToolConfirm.class);
+                ToolConfirmDesc desc = new ToolConfirmDesc();
+                desc.setDesc(confirm.description());
+                desc.setName(name);
+                desc.setMethod(method);
+                toolConfirmMethods.put(name, desc);
             }
         }
     }
@@ -75,11 +79,7 @@ public class ToolMethodRegistry implements ApplicationContextAware, SmartInitial
         return toolMethods.keySet();
     }
 
-    public Map<String, Method> getToolMethods() {
-        return toolMethods;
-    }
-
-    public Map<String, Method> getToolConfirmMethods() {
-        return toolConfirmMethods;
+    public List<ToolConfirmDesc> getToolConfirmDescList() {
+        return ListUtil.toList(toolConfirmMethods.values());
     }
 }
