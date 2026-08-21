@@ -86,7 +86,7 @@ public class CustomToolCallingManager implements ToolCallingManager {
                         """
                         {
                           "status": "CONFIRMATION_REQUIRED",
-                          "message": "确认卡片已由系统展示。立即停止工具调用，不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
+                           "message": "该操作尚未获得用户确认，禁止执行。请向用户说明影响并请求确认。不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
                         }
                         """
                 ))

@@ -56,6 +56,8 @@ public class ClientConfig {
                         - 普通问题：直接回答。
                         - 业务查询：先给出结论，再给出必要的业务字段；不要附带内部分析。
                         - 涉及风险操作：说明风险并要求用户确认，但不要执行写操作。
+                        - 用户消息为“【确认执行】”时，表示用户已通过界面确认当前待处理操作；继续完成此前的业务查询，不要解释该内部标记。
+                        - 用户消息为“【取消执行】”时，表示用户取消当前待处理操作；不得调用工具，只简短告知用户本次操作已取消。
                         """)
                 .defaultAdvisors(ToolCallAdvisor.builder()
                         .toolCallingManager(customToolCallingManager)

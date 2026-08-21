@@ -11,8 +11,8 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ToolApprovalRegistry {
 
-    // 升级键前缀，避免读取此前 record 或旧字段序列化写入的历史值。
-    private static final String KEY_PREFIX = "ai:tool:approval:v3:";
+    // 只存 String，避免 DevTools 热重启后 Redis 反序列化出旧 ClassLoader 的对象。
+    private static final String KEY_PREFIX = "ai:tool:approval:v4:";
     private static final String USED_KEY_SUFFIX = ":used";
     private static final String ACTIVE_KEY_SUFFIX = ":active";
     private static final int TTL_MINUTES = 1;
@@ -25,7 +25,7 @@ public class ToolApprovalRegistry {
 
     public PendingApproval create(String conversationId) {
         PendingApproval approval = new PendingApproval(UUID.randomUUID().toString(), conversationId);
-        redisCache.setCacheObject(key(approval.getApprovalId()), approval, TTL_MINUTES, TimeUnit.MINUTES);
+        redisCache.setCacheObject(key(approval.getApprovalId()), conversationId, TTL_MINUTES, TimeUnit.MINUTES);
         return approval;
     }
 
@@ -40,8 +40,8 @@ public class ToolApprovalRegistry {
         if (approvalId == null || approvalId.isBlank()) {
             return false;
         }
-        PendingApproval approval = redisCache.getCacheObject(key(approvalId));
-        if (approval == null) {
+        String approvedConversationId = redisCache.getCacheObject(key(approvalId));
+        if (approvedConversationId == null) {
             return false;
         }
         Boolean firstConsumer = redisCache.redisTemplate.opsForValue()
@@ -49,11 +49,11 @@ public class ToolApprovalRegistry {
         if (!Boolean.TRUE.equals(firstConsumer)) {
             return false;
         }
-        boolean matches = Objects.equals(approval.getConversationId(), conversationId);
+        boolean matches = Objects.equals(approvedConversationId, conversationId);
         if (!matches) {
             return false;
         }
-        redisCache.setCacheObject(activeKey(approvalId), approval, TTL_MINUTES, TimeUnit.MINUTES);
+        redisCache.setCacheObject(activeKey(approvalId), conversationId, TTL_MINUTES, TimeUnit.MINUTES);
         redisCache.deleteObject(key(approvalId));
         return true;
     }
@@ -63,8 +63,8 @@ public class ToolApprovalRegistry {
         if (approvalId == null || approvalId.isBlank()) {
             return false;
         }
-        PendingApproval approval = redisCache.getCacheObject(activeKey(approvalId));
-        return approval != null && Objects.equals(approval.getConversationId(), conversationId);
+        String approvedConversationId = redisCache.getCacheObject(activeKey(approvalId));
+        return Objects.equals(approvedConversationId, conversationId);
     }
 
     /** 聊天流结束或被取消时调用，令牌不能用于下一次独立请求。 */
@@ -84,10 +84,7 @@ public class ToolApprovalRegistry {
         return key(approvalId) + ACTIVE_KEY_SUFFIX;
     }
 
-    /**
-     * 不能使用 record：项目的 GenericJackson2JsonRedisSerializer 对 final 类型不会
-     * 写入 @class，但读取目标是 Object 时又需要该类型字段。普通 POJO 可正常序列化。
-     */
+    /** 仅用于把 approvalId 返回给调用方，不写入 Redis。 */
     public static class PendingApproval {
         private String approvalId;
         private String conversationId;

@@ -2,6 +2,8 @@ package com.yangchen.ai.controller;
 
 
 import cn.hutool.core.util.IdUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yangchen.ai.context.AIContext;
 import com.yangchen.ai.context.ToolApprovalRegistry;
 import com.yangchen.ai.context.ToolInvocationContext;
@@ -38,6 +40,7 @@ public class AIChatController {
     private final ToolCallbackResolver toolCallbackResolver;
     private final ToolProgressRegistry toolProgressRegistry;
     private final ToolApprovalRegistry toolApprovalRegistry;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/")
     @Operation(summary = "AI常规对话")
@@ -47,6 +50,7 @@ public class AIChatController {
     public Flux<ChatResp> chat(
             @RequestBody String userInput,
             @RequestHeader(value = AIContext.DEFAULT_HEADER_TOOL_APPROVAL_ID, required = false) String approvalId) {
+        userInput = normalizeUserInput(userInput);
         String conversationId = AIContext.getConversationId();
         toolProgressRegistry.bind(conversationId);
 
@@ -96,6 +100,23 @@ public class AIChatController {
                     toolProgressRegistry.unbind(conversationId);
                 }),
                 toolProgressRegistry.fluxOf(conversationId));
+    }
+
+    /** fetch(JSON.stringify(text)) 传来的 JSON 字符串不能把两侧引号一并写入聊天历史。 */
+    private String normalizeUserInput(String userInput) {
+        if (userInput == null) {
+            return "";
+        }
+        String value = userInput.trim();
+        if (value.length() < 2 || value.charAt(0) != '"' || value.charAt(value.length() - 1) != '"') {
+            return userInput;
+        }
+        try {
+            return objectMapper.readValue(value, String.class);
+        } catch (JsonProcessingException exception) {
+            log.warn("无法解析 JSON 字符串形式的用户输入，按原文处理");
+            return userInput;
+        }
     }
 
     @Operation(summary = "获取对话ID")
