@@ -2,6 +2,7 @@ package com.yangchen.ai.advisor;
 
 import com.yangchen.ai.context.ToolApprovalRegistry;
 import com.yangchen.ai.context.ToolInvocationContext;
+import com.yangchen.ai.context.ToolMethodRegistry;
 import com.yangchen.ai.context.ToolProgressRegistry;
 import com.yangchen.ai.entity.vo.ChatResp;
 import lombok.extern.slf4j.Slf4j;
@@ -34,11 +35,13 @@ public class CustomToolCallingManager implements ToolCallingManager {
     private final ToolCallingManager delegate = DefaultToolCallingManager.builder().build();
     private final ToolApprovalRegistry approvalRegistry;
     private final ToolProgressRegistry progressRegistry;
+    private final ToolMethodRegistry toolMethodRegistry;
 
     public CustomToolCallingManager(ToolApprovalRegistry approvalRegistry,
-                                    ToolProgressRegistry progressRegistry) {
+                                    ToolProgressRegistry progressRegistry, ToolMethodRegistry toolMethodRegistry) {
         this.approvalRegistry = approvalRegistry;
         this.progressRegistry = progressRegistry;
+        this.toolMethodRegistry = toolMethodRegistry;
     }
 
     @Override
@@ -84,11 +87,11 @@ public class CustomToolCallingManager implements ToolCallingManager {
                         call.id(),
                         call.name(),
                         """
-                        {
-                          "status": "CONFIRMATION_REQUIRED",
-                           "message": "该操作尚未获得用户确认，禁止执行。请向用户说明影响并请求确认。不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
-                        }
-                        """
+                                {
+                                  "status": "CONFIRMATION_REQUIRED",
+                                   "message": "该操作尚未获得用户确认，禁止执行。请向用户说明影响并请求确认。不要输出任何文字、工具名、参数、批准编号或内部执行过程。"
+                                }
+                                """
                 ))
                 .toList();
 
@@ -108,10 +111,12 @@ public class CustomToolCallingManager implements ToolCallingManager {
     }
 
     private boolean requiresUserApproval(List<AssistantMessage.ToolCall> calls) {
-        return calls.stream().anyMatch(call -> !INTERNAL_PREPARATION_TOOLS.contains(call.name()));
+        return calls.stream().anyMatch(call -> toolMethodRegistry.getToolConfirmNames().contains(call.name()));
     }
 
-    /** 确认卡片走独立 UI 事件通道，绝不插入 assistant/tool 协议消息。 */
+    /**
+     * 确认卡片走独立 UI 事件通道，绝不插入 assistant/tool 协议消息。
+     */
     private void emitConfirmationCard(String conversationId,
                                       ToolApprovalRegistry.PendingApproval approval,
                                       List<AssistantMessage.ToolCall> calls) {
@@ -132,5 +137,4 @@ public class CustomToolCallingManager implements ToolCallingManager {
                 "cancelText", "取消"));
         progressRegistry.emit(conversationId, response);
     }
-
 }
