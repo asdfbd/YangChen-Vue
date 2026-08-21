@@ -91,9 +91,9 @@ public class GenTableServiceImpl implements GenTableService {
     public List<GenTable> selectGenTableList(GenTable genTable) {
         return PageUtils.selectPage(genTableMapper, new LambdaQueryWrapper<GenTable>()
                 .apply(StrUtil.isNotBlank(genTable.getTableName()),
-                        "lower(table_name) like lower(concat('%', {0}, '%'))", genTable.getTableName())
+                        "lower(table_name) like lower(concat('%', {0}::text, '%'))", genTable.getTableName())
                 .apply(StrUtil.isNotBlank(genTable.getTableComment()),
-                        "lower(table_comment) like lower(concat('%', {0}, '%'))", genTable.getTableComment())
+                        "lower(table_comment) like lower(concat('%', {0}::text, '%'))", genTable.getTableComment())
                 .apply(ObjectUtil.isNotNull(genTable.getParams().get("beginTime")),
                         "create_time::date >= CAST({0} AS date)", genTable.getParams().get("beginTime"))
                 .apply(ObjectUtil.isNotNull(genTable.getParams().get("endTime")),
