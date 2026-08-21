@@ -58,7 +58,9 @@ public class ToolProgressRegistry {
         }
     }
 
-    /** 供控制器合并输出。 */
+    /**
+     * 供控制器合并输出。
+     */
     public Flux<ChatResp> fluxOf(String conversationId) {
         Sinks.Many<ChatResp> sink = conversationId == null ? null : sinks.get(conversationId);
         return sink == null ? Flux.empty() : sink.asFlux();

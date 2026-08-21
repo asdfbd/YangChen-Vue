@@ -7,7 +7,9 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/** Redis 中的一分钟工具确认令牌。 */
+/**
+ * Redis 中的一分钟工具确认令牌。
+ */
 @Component
 public class ToolApprovalRegistry {
 
@@ -58,7 +60,9 @@ public class ToolApprovalRegistry {
         return true;
     }
 
-    /** 当前对话流已经通过首个工具的确认，允许其后续工具继续执行。 */
+    /**
+     * 当前对话流已经通过首个工具的确认，允许其后续工具继续执行。
+     */
     public boolean isActive(String approvalId, String conversationId) {
         if (approvalId == null || approvalId.isBlank()) {
             return false;
@@ -67,7 +71,9 @@ public class ToolApprovalRegistry {
         return Objects.equals(approvedConversationId, conversationId);
     }
 
-    /** 聊天流结束或被取消时调用，令牌不能用于下一次独立请求。 */
+    /**
+     * 聊天流结束或被取消时调用，令牌不能用于下一次独立请求。
+     */
     public void clearActive(String approvalId) {
         if (approvalId == null || approvalId.isBlank()) {
             return;
@@ -84,10 +90,13 @@ public class ToolApprovalRegistry {
         return key(approvalId) + ACTIVE_KEY_SUFFIX;
     }
 
-    /** 仅用于把 approvalId 返回给调用方，不写入 Redis。 */
+    /**
+     * 仅用于把 approvalId 返回给调用方，不写入 Redis。
+     */
     public static class PendingApproval {
         private String approvalId;
         private String conversationId;
+
         public PendingApproval() {
         }
 

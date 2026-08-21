@@ -8,13 +8,13 @@ import com.yangchen.ai.service.AiChatTitleService;
 import com.yangchen.common.exception.ServiceException;
 import com.yangchen.common.utils.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,7 +33,7 @@ public class AiChatTitleServiceImpl implements AiChatTitleService {
     private final MessageWindowChatMemory messageWindowChatMemory;
     @Qualifier("titleClient")
     @Autowired
-    private  ChatClient chatClient;
+    private ChatClient chatClient;
 
     @Override
     public List<AiChatTitle> listByUserId(Long userId) {

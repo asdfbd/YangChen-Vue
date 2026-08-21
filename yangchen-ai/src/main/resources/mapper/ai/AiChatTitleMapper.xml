@@ -7,9 +7,9 @@
 
     <resultMap type="AiChatTitle" id="AiChatTitleResult">
         <id property="id" column="id"/>
-                <result property="userId" column="user_id"/>
-                <result property="conversationId" column="conversation_id"/>
-                <result property="title" column="title"/>
-                <result property="createTime" column="create_time"/>
+        <result property="userId" column="user_id"/>
+        <result property="conversationId" column="conversation_id"/>
+        <result property="title" column="title"/>
+        <result property="createTime" column="create_time"/>
     </resultMap>
 </mapper>

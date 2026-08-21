@@ -3,7 +3,9 @@ package com.yangchen.ai.context;
 import org.springframework.ai.model.tool.internal.ToolCallReactiveContextHolder;
 import reactor.util.context.ContextView;
 
-/** 从 Spring AI 工具递归的 Reactor Context 读取当前请求控制信息。 */
+/**
+ * 从 Spring AI 工具递归的 Reactor Context 读取当前请求控制信息。
+ */
 public final class ToolInvocationContext {
 
     public static final String APPROVAL_ID_KEY = ToolInvocationContext.class.getName() + ".approvalId";

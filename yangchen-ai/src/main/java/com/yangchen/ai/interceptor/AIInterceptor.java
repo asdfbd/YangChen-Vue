@@ -1,8 +1,8 @@
 package com.yangchen.ai.interceptor;
 
 import cn.hutool.json.JSONUtil;
-import com.yangchen.common.core.domain.R;
 import com.yangchen.ai.context.AIContext;
+import com.yangchen.common.core.domain.R;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
@@ -40,7 +40,7 @@ public class AIInterceptor implements HandlerInterceptor {
     @Bean
     public MappedInterceptor aiMappedInterceptor() {
         return new MappedInterceptor(new String[]{"/ai/chat/**"},
-                new String[]{"/ai/chat/generateTitle", "/ai/chat/completeContent","/ai/chat/generateConversationId"},
+                new String[]{"/ai/chat/generateTitle", "/ai/chat/completeContent", "/ai/chat/generateConversationId"},
                 this);
     }
 }

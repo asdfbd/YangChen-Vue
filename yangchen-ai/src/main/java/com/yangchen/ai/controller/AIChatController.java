@@ -102,7 +102,9 @@ public class AIChatController {
                 toolProgressRegistry.fluxOf(conversationId));
     }
 
-    /** fetch(JSON.stringify(text)) 传来的 JSON 字符串不能把两侧引号一并写入聊天历史。 */
+    /**
+     * fetch(JSON.stringify(text)) 传来的 JSON 字符串不能把两侧引号一并写入聊天历史。
+     */
     private String normalizeUserInput(String userInput) {
         if (userInput == null) {
             return "";

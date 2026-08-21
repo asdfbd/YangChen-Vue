@@ -7,10 +7,10 @@
 
     <resultMap type="AIChatContent" id="AIChatContentResult">
         <id property="id" column="id"/>
-                <result property="conversationId" column="conversation_id"/>
-                <result property="messageType" column="message_type"/>
-                <result property="content" column="content"/>
-                <result property="mateData" column="mate_data"/>
-                <result property="createTime" column="create_time"/>
+        <result property="conversationId" column="conversation_id"/>
+        <result property="messageType" column="message_type"/>
+        <result property="content" column="content"/>
+        <result property="mateData" column="mate_data"/>
+        <result property="createTime" column="create_time"/>
     </resultMap>
 </mapper>
