@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {computed} from 'vue';
+import {computed, ref} from 'vue';
 
 import {IconifyIcon} from '@vben/icons';
 
@@ -17,8 +17,16 @@ const emit = defineEmits<{
 const payload = computed(() => getUiPayload(props.message));
 const data = computed(() => getUiData(props.message));
 const fields = computed(() => (Array.isArray(data.value.fields) ? data.value.fields : []));
+const completedAction = ref<null | 'cancel' | 'confirm'>(null);
+const restoredAction = computed<null | 'cancel' | 'confirm'>(() => {
+  const value = data.value.completedAction;
+  return value === 'confirm' || value === 'cancel' ? value : null;
+});
+const currentAction = computed(() => completedAction.value ?? restoredAction.value);
 
 function action(action: 'confirm' | 'cancel') {
+  if (currentAction.value) return;
+  completedAction.value = action;
   emit('ui-action', {action, actionId: payload.value?.action?.actionId});
 }
 </script>
@@ -36,12 +44,12 @@ function action(action: 'confirm' | 'cancel') {
         </div>
       </div>
       <div class="ui-confirm-actions">
-        <button class="ui-btn ui-btn--ghost" type="button" @click="action('cancel')">
-          {{ payload?.action?.cancelText || '取消' }}
+        <button class="ui-btn ui-btn--ghost" type="button" :disabled="Boolean(currentAction)" @click="action('cancel')">
+          {{ currentAction === 'cancel' ? '已取消' : (payload?.action?.cancelText || '取消') }}
         </button>
-        <button class="ui-btn ui-btn--primary" type="button" @click="action('confirm')">
+        <button class="ui-btn ui-btn--primary" type="button" :disabled="Boolean(currentAction)" @click="action('confirm')">
           <IconifyIcon icon="lucide:check"/>
-          {{ payload?.action?.confirmText || '确认操作' }}
+          {{ currentAction === 'confirm' ? '已确认' : (payload?.action?.confirmText || '确认操作') }}
         </button>
       </div>
     </div>
@@ -163,5 +171,11 @@ function action(action: 'confirm' | 'cancel') {
 .ui-btn:hover {
   filter: brightness(0.98);
   transform: translateY(-1px);
+}
+
+.ui-btn:disabled {
+  cursor: default;
+  opacity: 0.58;
+  transform: none;
 }
 </style>

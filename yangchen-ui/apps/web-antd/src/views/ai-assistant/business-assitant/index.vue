@@ -75,6 +75,8 @@ const {
 
 const creatingConversation = ref(false);
 const chatPanelRef = ref<InstanceType<typeof ChatPanel>>();
+/** 当前待处理的确认卡片。存在时只允许点击卡片上的确认或取消。 */
+const pendingToolApprovalId = ref<string | null>(null);
 const titleGenerationInProgress = new Set<string>();
 let historyRequestVersion = 0;
 let contentRequestVersion = 0;
@@ -134,6 +136,31 @@ function removeLegacyThinking(content: string) {
     .trim();
 }
 
+function toCompletedConfirmationMessage(
+  id: string,
+  time: string,
+  action: 'cancel' | 'confirm',
+): ChatMessage {
+  return {
+    id: `${id}:confirmation`,
+    role: 'assistant',
+    content: '',
+    time,
+    type: 'confirm',
+    extra: {
+      ui: {
+        type: 'ui',
+        component: 'confirm',
+        data: {
+          title: '请确认继续',
+          description: action === 'confirm' ? '该操作已确认执行。' : '该操作已取消。',
+          completedAction: action,
+        },
+      },
+    },
+  };
+}
+
 function toChatMessages(item: {
   id?: string | number;
   messageType: string;
@@ -151,6 +178,14 @@ function toChatMessages(item: {
   const role = kind === 'user' || kind === 'human' ? 'user' : 'assistant';
   const time = item.createTime?.slice(11, 16) || nowTime();
   const messageId = String(item.id ?? genId());
+  // 兼容旧版本把 JSON 字符串两侧引号一并落库的记录。
+  const actionMarker = item.content?.trim().replace(/^["“]|["”]$/g, '');
+  if (role === 'user' && actionMarker === '【确认执行】') {
+    return [toCompletedConfirmationMessage(messageId, time, 'confirm')];
+  }
+  if (role === 'user' && actionMarker === '【取消执行】') {
+    return [toCompletedConfirmationMessage(messageId, time, 'cancel')];
+  }
 
   let ui: AiUiPayload | null = item.ui?.component
     ? {
@@ -345,6 +380,7 @@ async function loadHistory() {
 async function handleNewChat() {
   abortCurrentStream();
   cancelConversationLoading();
+  pendingToolApprovalId.value = null;
   if (creatingConversation.value) return;
   creatingConversation.value = true;
   // 先切到本地新会话，再异步申请 ID；任何标题列表响应都不能把它替换掉。
@@ -429,6 +465,7 @@ async function handleSelect(id: string) {
   const conversation = conversations.value.find((item) => item.id === id);
   if (!conversation) return;
   abortCurrentStream();
+  pendingToolApprovalId.value = null;
   open(id);
   await loadConversationMessages(conversation.conversationId || id);
 }
@@ -483,8 +520,27 @@ async function handleRemove(id: string) {
   }
 }
 
-/** 选择器选中后直接复用 ChatPanel 的标准发送链路。 */
+const CONFIRM_MESSAGE = '【确认执行】';
+const CANCEL_MESSAGE = '【取消执行】';
+
+/** 下一次请求使用的确认令牌；只经请求头发送，不拼入用户可见文本。 */
+let nextToolApprovalId: null | string = null;
+
+/** 选择器、确认卡片均复用 ChatPanel 的标准发送链路。 */
 function handleUiAction(payload: ChatUiAction) {
+  if (payload.message.type === 'confirm') {
+    if (payload.action === 'confirm' && payload.actionId) {
+      pendingToolApprovalId.value = null;
+      nextToolApprovalId = payload.actionId;
+      void chatPanelRef.value?.sendActionText(CONFIRM_MESSAGE);
+    } else if (payload.action === 'cancel') {
+      pendingToolApprovalId.value = null;
+      // 取消也按用户消息走正常链路，后端聊天记录可完整保留本次操作轨迹。
+      void chatPanelRef.value?.sendActionText(CANCEL_MESSAGE);
+    }
+    return;
+  }
+
   const submittedValue =
     payload.values?.choiceValue ?? payload.values?.inputValue;
   if (
@@ -520,6 +576,9 @@ async function handleSend(
   onUiMessage?: (payload: AiUiPayload) => void,
 ): Promise<string> {
   currentSignal = signal ?? null;
+  // sendText('已确认执行') 同步进入本方法；令牌仅消费给这一轮请求。
+  const approvalId = nextToolApprovalId;
+  nextToolApprovalId = null;
   let controller: AbortController | null = null;
   if (signal) {
     controller = new AbortController();
@@ -533,7 +592,13 @@ async function handleSend(
       conversationId,
       onChunk,
       controller?.signal,
-      onUiMessage,
+      (payload) => {
+        if (payload.component === 'confirm' && payload.action?.actionId) {
+          pendingToolApprovalId.value = payload.action.actionId;
+        }
+        onUiMessage?.(payload);
+      },
+      approvalId ?? undefined,
     );
     if (currentSignal === signal) currentSignal = null;
     return reply;
@@ -578,6 +643,7 @@ async function handleSend(
           avatar-icon="lucide:briefcase-business"
           :suggestions="suggestions"
           :send="handleSend"
+          :input-disabled="Boolean(pendingToolApprovalId)"
           hint="AI 对话由后端流式接口提供"
           :autofocus="true"
           :closable="false"

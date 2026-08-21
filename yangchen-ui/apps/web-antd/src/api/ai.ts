@@ -44,6 +44,7 @@ export interface ChatContent {
 }
 
 export const CONVERSATION_ID_HEADER = 'x-conversation-id';
+export const TOOL_APPROVAL_ID_HEADER = 'x-tool-approval-id';
 
 /** 创建后端 AI 会话，普通对话接口会校验该会话 ID。 */
 export async function generateConversationIdApi(): Promise<string> {
@@ -106,6 +107,7 @@ export async function streamChatApi(
   onChunk?: (chunk: string) => void,
   signal?: AbortSignal,
   onUiMessage?: (payload: AiUiPayload) => void,
+  approvalId?: string,
 ): Promise<string> {
   const accessStore = useAccessStore();
   const response = await fetch(`${apiURL}/ai/chat/`, {
@@ -117,6 +119,7 @@ export async function streamChatApi(
         : '',
       'Content-Type': 'application/json',
       [CONVERSATION_ID_HEADER]: conversationId,
+      ...(approvalId ? {[TOOL_APPROVAL_ID_HEADER]: approvalId} : {}),
     },
     body: JSON.stringify(userInput),
     signal,

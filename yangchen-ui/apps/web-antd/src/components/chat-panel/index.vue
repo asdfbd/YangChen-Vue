@@ -63,6 +63,8 @@ const props = withDefaults(
     send?: ChatSendHandler;
     /** 外部忙碌状态（流式进行中） */
     busy?: boolean;
+    /** 存在必须先处理的业务卡片时，禁止普通输入；宿主调用 sendText 仍可提交处理结果。 */
+    inputDisabled?: boolean;
     /** 消息渲染器注册表（type -> 组件） */
     renderers?: ChatRendererMap;
     /** 输入最大长度 */
@@ -88,6 +90,7 @@ const props = withDefaults(
     hint: '',
     suggestions: () => [],
     busy: false,
+    inputDisabled: false,
     renderers: () => ({}),
     maxLength: 2000,
     showHeader: true,
@@ -127,6 +130,8 @@ interface StreamSession {
   streamed: boolean;
   streamedContent: string;
   uiMessages: ChatMessage[];
+  /** 确认卡片必须等同轮文字结束后再展示，避免卡片抢在提示语前出现。 */
+  deferredUiMessages: ChatMessage[];
   buffer: string;
   scheduled: boolean;
 }
@@ -142,6 +147,7 @@ const stickToBottom = ref(true);
 const showBackToBottom = ref(false);
 
 const isBusy = computed(() => props.busy || pending.value);
+const isInputDisabled = computed(() => isBusy.value || props.inputDisabled);
 
 const isPage = computed(() => props.variant === 'page');
 
@@ -263,6 +269,13 @@ function finishStream() {
     if (!session.signal.aborted) {
       flushStreamChunks();
     }
+    // 确认卡片与同一轮的模型提示文字一起完成渲染，不能先于文字出现。
+    if (!session.signal.aborted && session.deferredUiMessages.length) {
+      session.uiMessages.push(...session.deferredUiMessages);
+      session.deferredUiMessages = [];
+      emitStreamMessages(session);
+      scrollToBottom();
+    }
     // 已中止时不落盘残余缓冲（≤1 帧），避免增量写入已切换的会话
     session.buffer = '';
   }
@@ -286,17 +299,23 @@ function stopGenerating() {
   emit('stop');
 }
 
-async function submit(text: string) {
+async function submit(text: string, force = false, displayUserMessage = true) {
   const content = text.trim();
-  if (!content || isBusy.value) return;
-  const userMessage: ChatMessage = {
-    id: genId(),
-    role: 'user',
-    content,
-    time: nowTime(),
-  };
-  const baseMessages = [...props.modelValue, userMessage];
-  emit('update:modelValue', baseMessages);
+  if (!content || isBusy.value || (props.inputDisabled && !force)) return;
+  const baseMessages = displayUserMessage
+    ? [
+        ...props.modelValue,
+        {
+          id: genId(),
+          role: 'user' as const,
+          content,
+          time: nowTime(),
+        },
+      ]
+    : [...props.modelValue];
+  if (displayUserMessage) {
+    emit('update:modelValue', baseMessages);
+  }
   emit('send-start', content);
 
   const handler = props.send;
@@ -331,6 +350,7 @@ async function submit(text: string) {
     streamed: false,
     streamedContent: '',
     uiMessages: [],
+    deferredUiMessages: [],
     buffer: '',
     scheduled: false,
   };
@@ -354,16 +374,21 @@ async function submit(text: string) {
       streamSession.streamedContent = '';
       streamingId.value = null;
     }
-    streamSession.uiMessages.push({
+    const uiMessage: ChatMessage = {
       id: payload.messageId || genId(),
       role: 'assistant',
       content: '',
       time: nowTime(),
       type: payload.component,
       extra: {ui: payload},
-    });
-    emitStreamMessages(streamSession);
-    scrollToBottom();
+    };
+    if (payload.component === 'confirm') {
+      streamSession.deferredUiMessages.push(uiMessage);
+    } else {
+      streamSession.uiMessages.push(uiMessage);
+      emitStreamMessages(streamSession);
+      scrollToBottom();
+    }
   };
 
   const result = handler(content, onChunk, signal, onUiMessage);
@@ -392,7 +417,12 @@ async function submit(text: string) {
 }
 
 /** 供宿主调用，用于选择器等业务 UI 触发的即时发送。 */
-defineExpose({sendText: submit});
+defineExpose({
+  /** 业务卡片提交结果时绕过输入锁；普通键盘和快捷问题仍会被锁定。 */
+  sendText: (text: string) => submit(text, true),
+  /** 动作标记需要后端落库，但当前卡片已经表达结果，不再额外显示用户气泡。 */
+  sendActionText: (text: string) => submit(text, true, false),
+});
 
 function focusComposer() {
   nextTick(() => composerRef.value?.focus());
@@ -477,7 +507,7 @@ watch(showHero, (val) => {
               ref="composerRef"
               :placeholder="placeholder"
               :max-length="maxLength"
-              :disabled="isBusy"
+              :disabled="isInputDisabled"
               :busy="isBusy"
               @stop="stopGenerating"
               @submit="submit"
@@ -488,6 +518,7 @@ watch(showHero, (val) => {
               v-for="q in suggestions"
               :key="q"
               class="cp-sug"
+              :disabled="isInputDisabled"
               @click="submit(q)"
             >
               <IconifyIcon icon="lucide:sparkle" class="cp-sug__icon"/>
@@ -533,7 +564,7 @@ watch(showHero, (val) => {
                 ref="composerRef"
                 :placeholder="placeholder"
                 :max-length="maxLength"
-                :disabled="isBusy"
+                :disabled="isInputDisabled"
                 :busy="isBusy"
                 @stop="stopGenerating"
                 @submit="submit"
@@ -609,6 +640,7 @@ watch(showHero, (val) => {
                 v-for="q in suggestions"
                 :key="q"
                 class="cp-starter__item"
+                :disabled="isInputDisabled"
                 @click="submit(q)"
               >
                 <IconifyIcon icon="lucide:sparkle" class="cp-starter__icon"/>
@@ -628,7 +660,7 @@ watch(showHero, (val) => {
           ref="composerRef"
           :placeholder="placeholder"
           :max-length="maxLength"
-          :disabled="isBusy"
+          :disabled="isInputDisabled"
           :busy="isBusy"
           @stop="stopGenerating"
           @submit="submit"
@@ -902,6 +934,20 @@ watch(showHero, (val) => {
   background: var(--cp-card);
   transform: translateY(-1px);
   box-shadow: 0 12px 26px -12px hsl(var(--primary) / 0.35);
+}
+
+.cp-sug:disabled,
+.cp-starter__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.cp-sug:disabled:hover,
+.cp-starter__item:disabled:hover {
+  border-color: var(--cp-line);
+  background: hsl(var(--card) / 0.82);
+  box-shadow: none;
+  transform: none;
 }
 
 .cp-sug:focus-visible,
