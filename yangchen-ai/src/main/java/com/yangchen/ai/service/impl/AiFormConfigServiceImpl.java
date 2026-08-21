@@ -8,6 +8,7 @@ import com.yangchen.ai.entity.AiFormConfig;
 import com.yangchen.ai.mapper.AiFormConfigMapper;
 import com.yangchen.ai.service.AiFormConfigService;
 import com.yangchen.common.utils.DateUtils;
+import com.yangchen.common.utils.SecurityUtils;
 import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -70,6 +71,10 @@ public class AiFormConfigServiceImpl implements AiFormConfigService {
     @Override
     public int insertAiFormConfig(AiFormConfig aiFormConfig) {
         aiFormConfig.setCreateTime(DateUtils.getNowDate());
+        if (aiFormConfig.getCreateBy() == null || aiFormConfig.getCreateBy().isBlank()) {
+            aiFormConfig.setCreateBy(SecurityUtils.getUsername());
+            aiFormConfig.setUpdateBy(SecurityUtils.getUsername());
+        }
         return aiFormConfigMapper.insert(aiFormConfig);
     }
 
@@ -82,6 +87,9 @@ public class AiFormConfigServiceImpl implements AiFormConfigService {
     @Override
     public int updateAiFormConfig(AiFormConfig aiFormConfig) {
         aiFormConfig.setUpdateTime(DateUtils.getNowDate());
+        if (aiFormConfig.getUpdateBy() == null || aiFormConfig.getUpdateBy().isBlank()) {
+            aiFormConfig.setUpdateBy(SecurityUtils.getUsername());
+        }
         return aiFormConfigMapper.updateById(aiFormConfig);
     }
 
@@ -127,10 +135,17 @@ public class AiFormConfigServiceImpl implements AiFormConfigService {
                 AiFormConfig item = list.get(i);
                 if (item.getId() != null && batchMapper.selectById(item.getId()) != null) {
                     item.setUpdateTime(now);
+                    if (item.getUpdateBy() == null || item.getUpdateBy().isBlank()) {
+                        item.setUpdateBy(SecurityUtils.getUsername());
+                    }
                     batchMapper.updateById(item);
                 } else {
                     item.setCreateTime(now);
                     item.setUpdateTime(now);
+                    if (item.getCreateBy() == null || item.getCreateBy().isBlank()) {
+                        item.setCreateBy(SecurityUtils.getUsername());
+                        item.setUpdateBy(SecurityUtils.getUsername());
+                    }
                     batchMapper.insert(item);
                 }
                 if ((i + 1) % batchSize == 0) {
