@@ -1,7 +1,7 @@
 package com.yangchen.ai.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.yangchen.ai.entity .AiChatTitle;
+import com.yangchen.ai.entity.AiChatTitle;
 
 /**
  * ai对话聊天标题 Mapper. 单表 CRUD 已由 BaseMapper 提供，无需重复声明。
